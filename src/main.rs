@@ -4,6 +4,7 @@
 mod cli;
 mod kif;
 mod pe;
+mod mt;
 
 use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand};
@@ -12,6 +13,7 @@ use crate::Commands::Info;
 use crate::kif::KifFile;
 use crate::pe::{find_cs2_pe, Cs2PeFile};
 use anyhow::Result;
+use mt::Mt;
 
 #[derive(Parser)]
 struct Cli {
@@ -37,7 +39,10 @@ struct FindPeArgs {
 
 fn main() -> Result<()> {
 	let cli = Cli::parse();
-	//
+
+	let mt = Mt::from_seed(3890403605);
+	println!("{}", mt?.genrand()?);
+
 	match &cli.command {
 		Commands::Info(args) => cli::display_info(args),
 		Commands::FindPe(args) => cli::find_pe(args),
