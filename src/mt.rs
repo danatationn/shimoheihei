@@ -1,84 +1,83 @@
-use std::num::Wrapping;
-use anyhow::Result;
+/*
+	this tries to replicate the 29-10-99 variant of MT19937, used in cs2
+	https://www.math.sci.hiroshima-u.ac.jp/m-mat/MT/VERSIONS/C-LANG/991029/mt19937int.c
+*/
 
 const N: usize = 624;
 const M: usize = 397;
-const MATRIX_A: Wrapping<u32> = Wrapping(0x9908B0DF);
-const UPPER_MASK: Wrapping<u32> = Wrapping(0x80000000);
-const LOWER_MASK: Wrapping<u32> = Wrapping(0x7FFFFFFF);
-const TEMPERING_MASK_B: Wrapping<u32> = Wrapping(0x9D2C5680);
-const TEMPERING_MASK_C: Wrapping<u32> = Wrapping(0xEFC60000);
+const DEFAULT_SEED: u32 = 4357;
+const MATRIX_A: u32 = 0x9908B0DF;  // constant vector a
+const UPPER_MASK: u32 = 0x80000000; // most significant w-r bits
+const LOWER_MASK: u32 = 0x7FFFFFFF; // least significant r bits
+const TEMPERING_MASK_B: u32 = 0x9d2c5680;
+const TEMPERING_MASK_C: u32 = 0xefc60000;
 
-pub struct Mt {
-	pub mt: [Wrapping<u32>; N],
-	pub mti: usize,
+pub struct Mt19991029 {
+	pub state_array: [u32; N],
+	pub mt_index: usize,
 }
 
-impl Mt {
-	pub fn from_seed(mut seed: u32) -> Result<Self> {
-		let mut mt = [Wrapping(0u32); N];
-		let mut mti: usize = N + 1;
-
-		for i in 0..N {
-			mt[i] = Wrapping(seed & 0xFFFF0000);
-			seed = seed.wrapping_mul(69069).wrapping_add(1);
-			mt[i] |= (seed & 0xFFFF0000) >> 16;
-			seed = seed.wrapping_mul(69069).wrapping_add(1);
-		}
-
-		mti = N;
-
-		Ok(Mt { mt, mti })
+impl Mt19991029 {
+	pub fn new() -> Self {
+		Self::from_seed(DEFAULT_SEED)
 	}
 
-	pub fn from_seed_arr(seed_array: [Wrapping<u32>; N]) -> Result<Self> {
-		let mut mt = [Wrapping(0u32); N];
-		let mut mti: usize = N + 1;
+	pub fn from_seed(mut seed: u32) -> Self {
+		let mut state_array = [0u32; N];
+		let mut mt_index = N + 1;  // mti==N+1 means mt[N] is not initialized
 
 		for i in 0..N {
-			mt[i] = seed_array[i];
+			state_array[i] = seed & 0xFFFF0000;
+			seed = seed.wrapping_mul(69069).wrapping_add(1);
+			state_array[i] |= (seed & 0xFFFF0000).wrapping_shr(16);
+			seed = seed.wrapping_mul(69069).wrapping_add(1);
 		}
-		mti = N;
 
-		Ok(Mt { mt, mti } )
+		mt_index = N;
+
+		Self { state_array, mt_index }
 	}
 
-	pub fn genrand(&mut self) -> Result<u32> {
-		let mut y: Wrapping<u32>;
-		let mag01: Vec<u32> = vec![0x0, MATRIX_A.0];
+	pub fn from_state_array(state_array: [u32; N]) -> Self {
+		Self { state_array, mt_index: N }
+	}
 
-		if self.mti >= N {
-			let mut kk: i32 = 0;
+	pub fn next_u32(&mut self) -> u32 {
+		let mut number: u32;
+		let mag01 = [0x0, MATRIX_A];
 
-			if self.mti == (N + 1) {
-				Self::from_seed(4357)?;
+		if self.mt_index >= N {
+			let mut i: usize = 0;
+
+			if self.mt_index == N + 1 {
+				// if from_seed() has not been called a default initial seed is used
+				let temp_mt = Mt19991029::from_seed(DEFAULT_SEED);
+				self.mt_index = temp_mt.mt_index;
+				self.state_array = temp_mt.state_array;
 			}
 
-			while kk < (N - M) as i32 {
-				y = (self.mt[kk as usize] & UPPER_MASK) | (self.mt[(kk + 1) as usize] & LOWER_MASK);
-				self.mt[kk as usize] = self.mt[(kk as usize + M)] ^ (y >> 1) ^ Wrapping(mag01[(y.0 & 0x1) as usize]);
-
-				kk += 1;
+			while i < N - M {
+				number = (self.state_array[i] & UPPER_MASK) | (self.state_array[i + 1] & LOWER_MASK);
+				self.state_array[i] = self.state_array[i + M] ^ number.wrapping_shr(1) ^ mag01[(number & 0x1) as usize];
+				i += 1;
 			}
-			while kk < (N - 1) as i32 {
-				y = (self.mt[kk as usize] & UPPER_MASK) | (self.mt[(kk + 1) as usize] & LOWER_MASK);
-				self.mt[kk as usize] = self.mt[kk as usize + (M - N)] ^ (y >> 1) ^ Wrapping(mag01[(y.0 & 0x1) as usize]);
-
-				kk += 1;
+			while i < N - 1 {
+				number = (self.state_array[i] & UPPER_MASK) | (self.state_array[i + 1] & LOWER_MASK);
+				self.state_array[i] = self.state_array[i.wrapping_add(M.wrapping_sub(N))] ^ number.wrapping_shr(1) ^ mag01[(number & 0x1) as usize];
+				i += 1;
 			}
-			y = (self.mt[N - 1] & UPPER_MASK) | (self.mt[0] & LOWER_MASK);
-			self.mt[N - 1] = self.mt[M - 1] ^ (y >> 1) ^ Wrapping(mag01[(y.0 & 0x1) as usize]);
-
-			self.mti = 0;
+			number = (self.state_array[N - 1] & UPPER_MASK) | (self.state_array[0] & LOWER_MASK);
+			self.state_array[N - 1] = self.state_array[M - 1] ^ number.wrapping_shr(1) ^ mag01[(number & 0x1) as usize];
+			self.mt_index = 0;
 		}
 
-	y = self.mt[self.mti];
-	self.mti += 1;
-	y ^= y >> 11;
-	y ^= (y << 7) & TEMPERING_MASK_B;
-	y ^= (y << 15) & TEMPERING_MASK_C;
-	y ^= y >> 18;
+		number = self.state_array[self.mt_index];
+		self.mt_index += 1;
+		number ^= number.wrapping_shr(11);
+		number ^= number.wrapping_shl(7) & TEMPERING_MASK_B;
+		number ^= number.wrapping_shl(15) & TEMPERING_MASK_C;
+		number ^= number.wrapping_shr(18);
 
-	Ok(y.0)
+		number
 	}
 }

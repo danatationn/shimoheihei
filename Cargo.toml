@@ -7,5 +7,4 @@ edition = "2024"
 pelite = "0.10.0"
 clap = { version = "4.5.48", features = ["derive"] }
 blowfish = "0.9.1"
-rand_mt = "5.0.0"
 anyhow = "1.0.100"

@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::num::Wrapping;
 use anyhow::Result;
-use rand_mt::Mt;
+use crate::mt::Mt19991029;
 
 pub struct KifFile {
 	pub signature: [u8; 4],
@@ -58,14 +58,8 @@ impl KifFile {
 		let mut kif = Self::from_path(path)?;
 		kif.toc_seed = Some(toc_seed);
 
-		let mut i = 0;
-		let mut seed = Wrapping(toc_seed);
 		for entry in &mut kif.entries {
-			seed = seed * Wrapping(69069) + Wrapping(1);
-			seed = seed * Wrapping(69069) + Wrapping(1);
-			seed += i;
-			i += 1;
-			entry.deobfuscate_filename(seed.0)?;
+			entry.deobfuscate_filename(toc_seed)?;
 		}
 
 		Ok(kif)
@@ -97,13 +91,12 @@ impl KifFileEntry {
 		Ok(KifFileEntry { file_name_raw, file_name: None, offset, length } )
 	}
 
-	pub fn deobfuscate_filename(&mut self, toc_seed: u32) -> Result<(), Infallible> {
+	pub fn deobfuscate_filename(&mut self, seed: u32) -> Result<(), Infallible> {
 		const FWD: &[u8; 52] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 		const REV: &[u8; 52] = b"zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA";
 		const LENGTH: i32 = 52;
-		let key = Wrapping(Mt::from(toc_seed).next_u32());
-		println!("{key}");
-		let mut shift = ((key >> 24) + (key >> 16) + (key >> 8) + key).0 as u8 as i32;
+		let key = Mt19991029::from_seed(seed).next_u32();
+		let mut shift = key.wrapping_shr(24).wrapping_add(key.wrapping_shr(16)).wrapping_add(key.wrapping_shr(8)).wrapping_add(key) as u8 as i32;
 		let obs_name = self.file_name_raw;
 		let file_name = if let Some(_) = self.file_name {
 			return Ok(());
@@ -111,6 +104,8 @@ impl KifFileEntry {
 			self.file_name = Some([0u8; 64]);
 			self.file_name.as_mut().unwrap()
 		};
+
+		println!("{key}");
 
 		for i in 0..64 {
 			let byte = obs_name[i];
@@ -138,12 +133,14 @@ impl KifFileEntry {
 					index += 4;
 					index2 += 4;
 
-					if index >= LENGTH { // We're outside the array, no need to continue
+					if index >= LENGTH {
+						// We're outside the array, no need to continue
 						break;
 					}
 				}
 
-				if index < LENGTH { // Only assign if we're inside the array
+				if index < LENGTH {
+					// Only assign if we're inside the array
 					file_name[i] = FWD[index as usize];
 				}
 				shift += 1;
