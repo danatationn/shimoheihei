@@ -93,14 +93,17 @@ pub fn beaufort_cipher(text: [u8; 64], mut key: usize) -> [u8; 64] {
 
 	for i in 0..64 {
 		let byte = text[i];
-		if byte.is_ascii_alphabetic() {
-			let j = key % 52;  // key capped from 0 to 51
-			if let Some(pos) = CHARSET.iter().position(|&char| char == byte) {
-				result[i] = CHARSET[(51 - pos + j) % 52];
+
+		if !byte.is_ascii_alphabetic() {
+			// key += 1;
+			continue
+		}
+		for j in 0..52 {
+			if CHARSET[(52 - (key % 52) + j) % 52] == byte {
+				result[i] = CHARSET[j];
 			}
 		}
 		key += 1;
 	}
-
 	result
 }

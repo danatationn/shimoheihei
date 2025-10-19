@@ -15,6 +15,7 @@ pub struct KifFile {
 	pub entries: Vec<KifFileEntry>,
 	pub blowfish_key: Option<[u8; 4]>,
 	pub toc_seed: Option<u32>,
+	pub encrypted: bool,
 }
 
 impl KifFile {
@@ -49,13 +50,15 @@ impl KifFile {
 		for (i, char) in String::from("__key__.dat").chars().enumerate() {
 			expected_name[i] = char as u8;
 		}
+		let mut encrypted = false;
 		if expected_name == entries[0].file_name_raw {
 			entries[0].decrypted = true;
+			encrypted = true;
 			let mut mt = MersenneTwister::from_seed(entries[0].length);
 			blowfish_key = Some(mt.next_u32().to_le_bytes());
 		}
 
-		Ok(KifFile { signature, entry_count, entries, blowfish_key, toc_seed: None })
+		Ok(KifFile { signature, entry_count, entries, blowfish_key, toc_seed: None, encrypted })
 	}
 
 	pub fn from_path_with_seed(path: &PathBuf, toc_seed: u32) -> Result<Self> {
@@ -63,7 +66,9 @@ impl KifFile {
 		kif.toc_seed = Some(toc_seed);
 
 		for (i, entry) in kif.entries.iter_mut().enumerate() {
-			entry.offset += i as u32;
+			if !entry.decrypted {
+				entry.offset += i as u32;
+			}
 			if let Some(blowfish_key) = kif.blowfish_key {
 				let seed = kif.toc_seed.unwrap() + i as u32;
 				entry.decrypt_entry_info(blowfish_key, seed)?;
@@ -106,6 +111,16 @@ impl KifFileEntry {
 			return Ok(())
 		}
 
+		self.decrypted = true;
+
+		let mut mt = MersenneTwister::from_seed(toc_seed);
+		let key = mt.next_u32();
+		let shift = ((key >> 24) as u8)
+			.wrapping_add((key >> 16) as u8)
+			.wrapping_add((key >> 8) as u8)
+			.wrapping_add(key as u8) as usize;
+		self.file_name = Some(beaufort_cipher(self.file_name_raw, shift));
+
 		let mut table_bytes = [0u8; 8];
 		table_bytes[0..4].copy_from_slice(&self.offset.to_le_bytes());
 		table_bytes[4..8].copy_from_slice(&self.length.to_le_bytes());
@@ -117,16 +132,6 @@ impl KifFileEntry {
 		let decrypted_bytes = block.as_slice();
 		self.offset = u32::from_le_bytes(decrypted_bytes[0..4].try_into()?);
 		self.length = u32::from_le_bytes(decrypted_bytes[4..8].try_into()?);
-
-		let mut mt = MersenneTwister::from_seed(toc_seed);
-		let mut key: usize = mt.next_u32() as usize;
-		key += key.wrapping_shr(24);
-		key += key.wrapping_shr(16);
-		key += key.wrapping_shr(8);
-		key = key as u8 as usize;
-
-		self.file_name = Some(beaufort_cipher(self.file_name_raw, key));
-		self.decrypted = true;
 
 		Ok(())
 	}
@@ -141,9 +146,8 @@ impl KifFileEntry {
 			let buffer_slice = &mut buffer[..read_size];
 			file.read_exact(buffer_slice)?;
 			if buffer_slice.len() == 8 {
-				let mut block = GenericArray::clone_from_slice(buffer_slice);
+				let mut block = GenericArray::from_mut_slice(buffer_slice);
 				blowfish.decrypt_block(&mut block);
-				buffer_slice.copy_from_slice(&block);
 			}
 			writer.write_all(buffer_slice)?;
 			bytes_remaining -= read_size;
@@ -162,6 +166,9 @@ impl KifFileEntry {
 		};
 
 		for byte in name_arr {
+			if byte == 0 {
+				break
+			}
 			if byte.is_ascii_graphic() {
 				file_name.push(byte as char);
 			}

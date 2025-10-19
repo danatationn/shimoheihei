@@ -39,7 +39,7 @@ pub fn display_info(args: &InfoArgs) -> () {
 			println!("-> entries:");
 			for (i, entry) in kif.entries.iter().enumerate() {
 				let file_name = entry.get_file_name();
-				println!("{i}: {file_name}, offset: {}, length: {}; ", entry.offset, entry.length);
+				println!("{i}.\t{file_name} \toffset: {}, length: {}", entry.offset, entry.length);
 			}
 		// } else {
 		// 	println!("-> not displaying entries (too many!)");
