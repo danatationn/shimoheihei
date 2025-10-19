@@ -1,19 +1,7 @@
-#[warn(unused_imports)]
-#[warn(unused_variables)]
-
 mod cli;
-mod kif;
-mod pe;
-mod mt;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
-use crate::cli::display_info;
-use crate::Commands::Info;
-use crate::kif::KifFile;
-use crate::pe::{find_cs2_pe, Cs2PeFile};
-use anyhow::Result;
-use crate::mt::Mt19991029;
 
 #[derive(Parser)]
 struct Cli {
@@ -24,6 +12,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
 	Info(InfoArgs),
+	Extract(ExtractArgs),
 	FindPe(FindPeArgs),
 }
 
@@ -33,18 +22,23 @@ struct InfoArgs {
 }
 
 #[derive(Args)]
+struct ExtractArgs {
+	path: PathBuf,
+	destination: Option<PathBuf>,
+}
+
+#[derive(Args)]
 struct FindPeArgs {
 	path: PathBuf,
 }
 
-fn main() -> Result<()> {
+fn main() {
 	let cli = Cli::parse();
 
 	match &cli.command {
 		Commands::Info(args) => cli::display_info(args),
+		Commands::Extract(args) => cli::extract(args).unwrap(),
 		Commands::FindPe(args) => cli::find_pe(args),
 	}
-
-	Ok(())
 }
 

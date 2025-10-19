@@ -1,4 +1,5 @@
 /*
+	-= MersenneTwister =-
 	this tries to replicate the 29-10-99 variant of MT19937, used in cs2
 	https://www.math.sci.hiroshima-u.ac.jp/m-mat/MT/VERSIONS/C-LANG/991029/mt19937int.c
 */
@@ -12,19 +13,19 @@ const LOWER_MASK: u32 = 0x7FFFFFFF; // least significant r bits
 const TEMPERING_MASK_B: u32 = 0x9d2c5680;
 const TEMPERING_MASK_C: u32 = 0xefc60000;
 
-pub struct Mt19991029 {
+pub struct MersenneTwister {
 	pub state_array: [u32; N],
 	pub mt_index: usize,
 }
 
-impl Mt19991029 {
+impl MersenneTwister {
 	pub fn new() -> Self {
-		Self::from_seed(DEFAULT_SEED)
+		// mti==N+1 means mt[N] is not initialized
+		Self { state_array: [0u32; N], mt_index: N + 1 }
 	}
 
 	pub fn from_seed(mut seed: u32) -> Self {
 		let mut state_array = [0u32; N];
-		let mut mt_index = N + 1;  // mti==N+1 means mt[N] is not initialized
 
 		for i in 0..N {
 			state_array[i] = seed & 0xFFFF0000;
@@ -33,9 +34,7 @@ impl Mt19991029 {
 			seed = seed.wrapping_mul(69069).wrapping_add(1);
 		}
 
-		mt_index = N;
-
-		Self { state_array, mt_index }
+		Self { state_array, mt_index: N }
 	}
 
 	pub fn from_state_array(state_array: [u32; N]) -> Self {
@@ -51,7 +50,7 @@ impl Mt19991029 {
 
 			if self.mt_index == N + 1 {
 				// if from_seed() has not been called a default initial seed is used
-				let temp_mt = Mt19991029::from_seed(DEFAULT_SEED);
+				let temp_mt = MersenneTwister::from_seed(DEFAULT_SEED);
 				self.mt_index = temp_mt.mt_index;
 				self.state_array = temp_mt.state_array;
 			}
@@ -80,4 +79,28 @@ impl Mt19991029 {
 
 		number
 	}
+}
+
+/*
+	-= Beaufort cipher =-
+	Hi Beaufort
+*/
+
+const CHARSET: &[u8; 52] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+pub fn beaufort_cipher(text: [u8; 64], mut key: usize) -> [u8; 64] {
+	let mut result = text;
+
+	for i in 0..64 {
+		let byte = text[i];
+		if byte.is_ascii_alphabetic() {
+			let j = key % 52;  // key capped from 0 to 51
+			if let Some(pos) = CHARSET.iter().position(|&char| char == byte) {
+				result[i] = CHARSET[(51 - pos + j) % 52];
+			}
+		}
+		key += 1;
+	}
+
+	result
 }

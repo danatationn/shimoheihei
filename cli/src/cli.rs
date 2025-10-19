@@ -1,6 +1,10 @@
-use crate::{pe, FindPeArgs, InfoArgs};
-use crate::kif::KifFile;
-use crate::pe::{find_cs2_pe, Cs2PeFile};
+use std::ffi::OsStr;
+use std::fs;
+use std::fs::File;
+use std::io::{BufWriter, Error};
+use crate::{ExtractArgs, FindPeArgs, InfoArgs};
+use core::kif::KifFile;
+use core::pe::{find_cs2_pe, Cs2PeFile};
 
 pub fn display_info(args: &InfoArgs) -> () {
 	let valid_exts = vec!["int", "bin", "exe"];
@@ -25,8 +29,8 @@ pub fn display_info(args: &InfoArgs) -> () {
 
 		println!("-= KIF \"{file_name}\" =-");
 		println!("-> {} entries total", kif.entry_count);
-		if kif.blowfish_key != 0 {
-			println!("-> blowfish key: {}", kif.blowfish_key);
+		if let Some(blowfish_key) = kif.blowfish_key {
+			println!("-> blowfish key: {}", u32::from_le_bytes(blowfish_key));
 		}
 		if let Some(toc_seed) = kif.toc_seed {
 			println!("-> mersenne twister seed: {}", toc_seed);
@@ -34,8 +38,8 @@ pub fn display_info(args: &InfoArgs) -> () {
 		// if kif.entry_count < 32 {
 			println!("-> entries:");
 			for (i, entry) in kif.entries.iter().enumerate() {
-				let file_name = entry.get_file_name().unwrap();
-				print!("{i}: {}; ", file_name);
+				let file_name = entry.get_file_name();
+				println!("{i}: {file_name}, offset: {}, length: {}; ", entry.offset, entry.length);
 			}
 		// } else {
 		// 	println!("-> not displaying entries (too many!)");
@@ -61,4 +65,51 @@ pub fn find_pe(args: &FindPeArgs) -> () {
 	} else {
 		println!("CS2 binary couldn't be found...");
 	}
+}
+
+
+pub fn extract(args: &ExtractArgs) -> Result<(), Error> {
+	let path = args.path.canonicalize()?;
+	let parent = path.parent().unwrap().to_path_buf();
+	let stem = path.file_stem().unwrap();
+
+	if path.extension().unwrap() != OsStr::new("int") {
+		panic!("File isn't an .int !!");
+	}
+
+	let pe = if let Some(pe_path) = find_cs2_pe(&parent) {
+		Cs2PeFile::from_path(&pe_path).unwrap()
+	} else {
+		panic!("CS2 binary couldn't be found...")
+	};
+
+	let dest = if let Some(dest) = &args.destination {
+		dest
+	} else {
+		&parent.join(stem)
+	};
+
+	if dest.is_file() {
+		panic!("The destination cannot be a file!");
+	}
+	if !dest.exists() {
+		fs::create_dir_all(dest)?;
+	}
+
+	let mut kif_file = File::open(&path)?;
+	let kif = KifFile::from_path_with_seed(&path, pe.toc_seed).unwrap();
+	for entry in kif.entries {
+		if entry.get_file_name() == "__key__.dat" {
+			continue
+		}
+		let file_path = dest.join(entry.get_file_name());
+		if file_path.exists() {
+			continue
+		}
+		let mut file = File::create(file_path)?;
+		let mut stream_writer = BufWriter::new(&mut file);
+		entry.stream_data(&mut kif_file, &mut stream_writer, kif.blowfish_key.unwrap()).unwrap();
+	}
+
+	Ok(())
 }
