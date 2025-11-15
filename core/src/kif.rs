@@ -1,13 +1,12 @@
-use std::cmp;
-use std::convert::Infallible;
+use std::cmp::min;
 use std::path::PathBuf;
 use std::fs::File;
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
-use anyhow::Result;
+use std::io::{ErrorKind, Read, Seek, SeekFrom};
+use anyhow::{bail, Result};
 use blowfish::BlowfishLE;
 use blowfish::cipher::{BlockDecrypt, KeyInit};
 use blowfish::cipher::generic_array::GenericArray;
-use crate::crypto::{beaufort_cipher, MersenneTwister};
+use crate::crypt::{beaufort_cipher, MersenneTwister};
 
 pub struct KifFile {
 	pub signature: [u8; 4],
@@ -41,7 +40,7 @@ impl KifFile {
 
 		let mut entries: Vec<KifFileEntry> = Vec::with_capacity(entry_count as usize);
 		for i in 0..entry_count {
-			let entry = KifFileEntry::from_entry_pos(&mut file, i)?;
+			let entry = KifFileEntry::from(&mut file, i)?;
 			entries.push(entry);
 		}
 
@@ -52,7 +51,6 @@ impl KifFile {
 		}
 		let mut encrypted = false;
 		if expected_name == entries[0].file_name_raw {
-			entries[0].decrypted = true;
 			encrypted = true;
 			let mut mt = MersenneTwister::from_seed(entries[0].length);
 			blowfish_key = Some(mt.next_u32().to_le_bytes());
@@ -66,14 +64,10 @@ impl KifFile {
 		kif.toc_seed = Some(toc_seed);
 
 		for (i, entry) in kif.entries.iter_mut().enumerate() {
-			if !entry.decrypted {
-				entry.offset += i as u32;
-			}
 			if let Some(blowfish_key) = kif.blowfish_key {
 				let seed = kif.toc_seed.unwrap() + i as u32;
 				entry.decrypt_entry_info(blowfish_key, seed)?;
 			}
-
 		}
 
 		Ok(kif)
@@ -81,6 +75,7 @@ impl KifFile {
 }
 
 pub struct KifFileEntry {
+	pub index: u32,
 	pub file_name_raw: [u8; 64],
 	pub file_name: Option<[u8; 64]>,
 	pub offset: u32,
@@ -89,7 +84,7 @@ pub struct KifFileEntry {
 }
 
 impl KifFileEntry {
-	pub fn from_entry_pos(file: & mut File, pos: u32) -> Result<KifFileEntry> {
+	pub fn from(file: &mut File, pos: u32) -> Result<KifFileEntry> {
 		file.seek(SeekFrom::Start(8+72*pos as u64))?;
 
 		let mut file_name_raw = [0u8; 64];
@@ -103,10 +98,13 @@ impl KifFileEntry {
 		file.read_exact(&mut length_bytes)?;
 		let length = u32::from_le_bytes(length_bytes);
 
-		Ok(KifFileEntry { file_name_raw, file_name: None, offset, length, decrypted: false } )
+		Ok(KifFileEntry { index: pos, file_name_raw, file_name: None, offset, length, decrypted: false } )
 	}
 
 	pub fn decrypt_entry_info(&mut self, blowfish_key: [u8; 4], toc_seed: u32) -> Result<()> {
+		if self.file_name_raw.starts_with(String::from("__key__.dat").as_bytes()) {
+			return Ok(())
+		}
 		if self.decrypted == true {
 			return Ok(())
 		}
@@ -120,6 +118,8 @@ impl KifFileEntry {
 			.wrapping_add((key >> 8) as u8)
 			.wrapping_add(key as u8) as usize;
 		self.file_name = Some(beaufort_cipher(self.file_name_raw, shift));
+
+		self.offset = self.offset.wrapping_add(self.index);
 
 		let mut table_bytes = [0u8; 8];
 		table_bytes[0..4].copy_from_slice(&self.offset.to_le_bytes());
@@ -136,25 +136,34 @@ impl KifFileEntry {
 		Ok(())
 	}
 
-	pub fn stream_data<W: Write>(&self, file: &mut File, writer: &mut BufWriter<W>, blowfish_key: [u8; 4]) -> Result<()> {
-		let blowfish = BlowfishLE::new_from_slice(&blowfish_key).unwrap();
-		let mut buffer = vec![0u8; 8];
-		let mut bytes_remaining = self.length as usize;
-
-		while bytes_remaining > 0 {
-			let read_size = cmp::min(8, bytes_remaining);
-			let buffer_slice = &mut buffer[..read_size];
-			file.read_exact(buffer_slice)?;
-			if buffer_slice.len() == 8 {
-				let mut block = GenericArray::from_mut_slice(buffer_slice);
-				blowfish.decrypt_block(&mut block);
-			}
-			writer.write_all(buffer_slice)?;
-			bytes_remaining -= read_size;
+	pub fn decrypt_entry_data<F: Read + Seek>(&mut self, file: &mut F, blowfish_key: [u8; 4]) -> Result<Vec<u8>> {
+		if !self.decrypted {
+			bail!("Entry is either encrypted or is __key__.dat");
 		}
 
-		writer.flush()?;
-		Ok(())
+		let blowfish = BlowfishLE::new_from_slice(&blowfish_key).unwrap();
+
+		let mut data: Vec<u8> = Vec::with_capacity(self.length as usize);
+		let mut buffer = [0u8; 8];
+		let mut bytes_remaining = self.length as usize;
+
+		file.seek(SeekFrom::Start(self.offset as u64))?;
+
+		while bytes_remaining > 0 {
+			let bytes_to_read = min(bytes_remaining, 8);
+			file.read_exact(&mut buffer[..bytes_to_read])?;
+
+			if bytes_to_read == 8 {
+				let mut block = GenericArray::clone_from_slice(&buffer);
+				blowfish.decrypt_block(&mut block);
+				data.extend_from_slice(block.as_slice());
+			} else {
+				data.extend_from_slice(&buffer[..bytes_to_read]);
+			}
+
+			bytes_remaining -= bytes_to_read;
+		}
+		Ok(data)
 	}
 
 	pub fn get_file_name(&self) -> String {

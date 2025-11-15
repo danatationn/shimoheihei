@@ -1,10 +1,10 @@
 pub mod kif;
 pub mod pe;
-pub mod crypto;
+pub mod crypt;
 
 #[cfg(test)]
 mod tests {
-	use crate::crypto::{beaufort_cipher, MersenneTwister};
+	use crate::crypt::{beaufort_cipher, MersenneTwister};
 
 	#[test]
 	fn beaufort() {

@@ -1,10 +1,10 @@
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use pelite::{FileMap, PeFile};
 use pelite::resources::Name;
 use std::fs;
 use blowfish::BlowfishLE;
-use blowfish::cipher::{Block, BlockDecrypt, KeyInit};
+use blowfish::cipher::{BlockDecrypt, KeyInit};
 use blowfish::cipher::generic_array::GenericArray;
 use anyhow::Result;
 
@@ -16,7 +16,7 @@ pub struct Cs2PeFile {
 }
 
 impl Cs2PeFile {
-	pub fn from_path(path: &PathBuf) -> Result<Self> {
+	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self> {
 		let map = FileMap::open(&path)
 			.expect("Couldn't read the executable!");
 		let file = PeFile::from_bytes(&map)
@@ -62,17 +62,21 @@ impl Cs2PeFile {
 			chunk.copy_from_slice(&block);
 		}
 
+		if let Some(pos) = v_code2.iter().position(|&byte| byte == 0) {
+			v_code2.truncate(pos);
+		}
+
 		const MAGIC: u32 = 0x04C11DB7;
 		let mut toc_seed: u32 = 0xFFFFFFFF;
 
-		for char in &v_code2 {
-			toc_seed ^= (*char as u32) << 24;
+		for byte in &v_code2 {
+			toc_seed ^= (*byte as u32) << 24;
 			for _ in 0..8 {
 				if (toc_seed & 0x80000000) != 0 {
-					toc_seed = toc_seed.wrapping_mul(2);
+					toc_seed <<= 1;
 					toc_seed ^= MAGIC;
 				} else {
-					toc_seed = toc_seed.wrapping_mul(2);
+					toc_seed <<= 1;
 				}
 			}
 			toc_seed = !toc_seed;
@@ -82,7 +86,9 @@ impl Cs2PeFile {
 	}
 }
 
-pub fn find_cs2_pe(top_dir: &PathBuf) -> Option<PathBuf> {
+
+pub fn find_cs2_pe<P: AsRef<Path>>(top_dir: P) -> Option<PathBuf> {
+	let top_dir = top_dir.as_ref();
 	if !top_dir.is_dir() {
 		return None
 	}
@@ -107,6 +113,12 @@ pub fn find_cs2_pe(top_dir: &PathBuf) -> Option<PathBuf> {
 		}
 	}
 	None
+}
+
+pub fn check_cs2_pe_path<P: AsRef<Path>>(path: P) -> Result<bool> {
+	let map = FileMap::open(&path)?;
+	let file = PeFile::from_bytes(&map)?;
+	check_cs2_pe(&file)
 }
 
 pub fn check_cs2_pe(file: &PeFile) -> Result<bool> {

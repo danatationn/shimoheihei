@@ -88,22 +88,75 @@ impl MersenneTwister {
 
 const CHARSET: &[u8; 52] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-pub fn beaufort_cipher(text: [u8; 64], mut key: usize) -> [u8; 64] {
+pub fn beaufort_cipher_good(text: [u8; 64], mut key: usize) -> [u8; 64] {
 	let mut result = text;
 
 	for i in 0..64 {
 		let byte = text[i];
 
 		if !byte.is_ascii_alphabetic() {
-			// key += 1;
+			key += 1;
 			continue
 		}
+
 		for j in 0..52 {
-			if CHARSET[(52 - (key % 52) + j) % 52] == byte {
+			let idx = (52 + j + 52 - (key % 52)) % 52;
+			if CHARSET[idx] == byte {
 				result[i] = CHARSET[j];
+				break
 			}
 		}
+
 		key += 1;
 	}
 	result
+}
+
+pub fn beaufort_cipher(mut text: [u8; 64], mut key: usize) -> [u8; 64] {
+	// clone of the c# code
+	// todo try to make it look prettier if possible (preferably like the function above this)
+	const LENGTH: usize = 52;
+	const FWD: &[u8; LENGTH] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+	const REV: &[u8; LENGTH] = b"zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA";
+
+	for i in 0..64 {
+		let c = text[i];
+		let mut out = c;
+
+		if (b'A'..=b'Z').contains(&c) || (b'a'..=b'z').contains(&c) {
+			let mut index = 0usize;
+			let mut index2 = key;
+
+			while REV[index2 % LENGTH] != c {
+				if REV[(key + index + 1) % LENGTH] == c {
+					index += 1;
+					break;
+				}
+				if REV[(key + index + 2) % LENGTH] == c {
+					index += 2;
+					break;
+				}
+				if REV[(key + index + 3) % LENGTH] == c {
+					index += 3;
+					break;
+				}
+
+				index += 4;
+				index2 += 4;
+
+				if index >= LENGTH {
+					break;
+				}
+			}
+
+			if index < LENGTH {
+				out = FWD[index];
+			}
+		}
+
+		text[i] = out;
+		key = key.wrapping_add(1);
+	}
+
+	text
 }

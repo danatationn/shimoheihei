@@ -1,4 +1,6 @@
-mod cli;
+mod extract;
+mod info;
+mod find_pe;
 
 use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
@@ -18,27 +20,31 @@ enum Commands {
 
 #[derive(Args)]
 struct InfoArgs {
-	path: PathBuf,
+	file_path: PathBuf,
+	#[arg(long)]
+	pe_path: Option<PathBuf>,
+	#[arg(long)]
+	toc_seed: Option<u32>,
 }
 
 #[derive(Args)]
 struct ExtractArgs {
-	path: PathBuf,
-	destination: Option<PathBuf>,
+	kif_path: PathBuf,
+	dest_path: Option<PathBuf>,
 }
 
 #[derive(Args)]
 struct FindPeArgs {
-	path: PathBuf,
+	folder_path: PathBuf,
 }
 
 fn main() {
 	let cli = Cli::parse();
 
 	match &cli.command {
-		Commands::Info(args) => cli::display_info(args),
-		Commands::Extract(args) => cli::extract(args).unwrap(),
-		Commands::FindPe(args) => cli::find_pe(args),
+		Commands::Info(args) => info::display_info(args),
+		Commands::Extract(args) => extract::extract(args).unwrap(),
+		Commands::FindPe(args) => find_pe::find_pe(args),
 	}
 }
 
