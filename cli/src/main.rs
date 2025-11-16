@@ -30,6 +30,8 @@ struct InfoArgs {
 #[derive(Args)]
 struct ExtractArgs {
 	kif_path: PathBuf,
+	pe_path: PathBuf,
+	#[arg(long)]
 	dest_path: Option<PathBuf>,
 }
 

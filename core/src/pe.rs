@@ -19,8 +19,7 @@ impl Cs2PeFile {
 	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self> {
 		let map = FileMap::open(&path)
 			.expect("Couldn't read the executable!");
-		let file = PeFile::from_bytes(&map)
-			.expect("idk either man");
+		let file = PeFile::from_bytes(&map)?;
 		Self::from_file(file)
 	}
 

@@ -1,4 +1,4 @@
-use core::kif::KifFile;
+use core::kif::Kif;
 use core::pe::Cs2PeFile;
 use core::pe::check_cs2_pe_path;
 use crate::InfoArgs;
@@ -10,9 +10,9 @@ pub fn display_info(args: &InfoArgs) -> () {
 	if ext == "int" {
 		let kif = if let Some(pe_path) = args.pe_path.as_ref() {
 			let pe_file = Cs2PeFile::from_path(pe_path).expect("The PE file couldn't be read!");
-			KifFile::from_path_with_seed(&path, pe_file.toc_seed).unwrap()
+			Kif::from_path_with_seed(&path, pe_file.toc_seed).unwrap()
 		} else if let Some(toc_seed) = args.toc_seed {
-			KifFile::from_path_with_seed(&path, toc_seed).unwrap()
+			Kif::from_path_with_seed(&path, toc_seed).unwrap()
 		} else {
 			panic!("Neither a PE path nor a TOC seed was supplied!");
 		};

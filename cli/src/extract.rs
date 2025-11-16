@@ -3,7 +3,7 @@ use std::{fs, io};
 use std::fs::File;
 use std::io::{Error, Write};
 use crate::ExtractArgs;
-use core::kif::KifFile;
+use core::kif::Kif;
 use core::pe::{find_cs2_pe, Cs2PeFile};
 
 
@@ -15,13 +15,8 @@ pub fn extract(args: &ExtractArgs) -> Result<(), Error> {
 	if path.extension().unwrap() != OsStr::new("int") {
 		panic!("File isn't an .int !!");
 	}
-
-	let pe = if let Some(pe_path) = find_cs2_pe(&parent) {
-		Cs2PeFile::from_path(&pe_path).unwrap()
-	} else {
-		panic!("CS2 binary couldn't be found...")
-	};
-
+	let cs2_pe = Cs2PeFile::from_path(&args.pe_path).expect("The PE file couldn't be read!");
+	
 	let dest = if let Some(dest) = &args.dest_path {
 		dest
 	} else {
@@ -36,14 +31,9 @@ pub fn extract(args: &ExtractArgs) -> Result<(), Error> {
 	}
 
 	let mut kif_file = File::open(&path)?;
-	let kif = KifFile::from_path_with_seed(&path, pe.toc_seed).unwrap();
-	let blowfish_key = if let Some(blowfish_key) = kif.blowfish_key {
-		blowfish_key
-	} else {
-		[0u8; 4]
-	};
-	if blowfish_key != [0u8; 4] {
-		println!("Extracting {:?}", stem);
+	let kif = Kif::from_path_with_seed(&path, cs2_pe.toc_seed).unwrap();
+	if kif.blowfish_key.is_some() {
+		println!("Extracting {:?} {}", stem, kif.entry_count);
 		let mut i = 0;
 		for mut entry in kif.entries {
 			if entry.get_file_name() == "__key__.dat" {
@@ -56,10 +46,12 @@ pub fn extract(args: &ExtractArgs) -> Result<(), Error> {
 			print!("\r\x1B[K{:.1}% - {}", fraction * 100.0, entry.get_file_name());
 			io::stdout().flush()?;
 			let mut file = File::create(file_path)?;
-			let data = entry.decrypt_entry_data(&mut kif_file, blowfish_key).unwrap();
+			let data = entry.extract_data(&mut kif_file).unwrap();
 			file.write_all(&data)?;
 		}
 		println!("\r\x1B[K100.0% - Done!");
+	} else {
+		println!("no blowfhs");
 	}
 
 	Ok(())
