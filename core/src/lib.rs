@@ -1,6 +1,40 @@
-pub mod kif;
-pub mod pe;
+use std::io::Read;
+
 pub mod crypt;
+pub mod pe;
+pub mod kif;
+pub mod hgx;
+
+pub trait ReadExt: Read {
+	fn read_le<T: LeReadable>(&mut self) -> Result<T, std::io::Error>;
+}
+
+pub trait LeReadable {
+	fn read_from<R: Read>(reader: &mut R) -> Result<Self, std::io::Error>
+	where Self: Sized;
+}
+
+impl LeReadable for u32 {
+	fn read_from<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+		let mut buf = [0u8; 4];
+		reader.read_exact(&mut buf)?;
+		Ok(u32::from_le_bytes(buf))
+	}
+}
+
+impl LeReadable for i32 {
+	fn read_from<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+		let mut buf = [0u8; 4];
+		reader.read_exact(&mut buf)?;
+		Ok(i32::from_le_bytes(buf))
+	}
+}
+
+impl<R: Read> ReadExt for R {
+	fn read_le<T: LeReadable>(&mut self) -> Result<T, std::io::Error> {
+		T::read_from(self)
+	}
+}
 
 #[cfg(test)]
 mod tests {

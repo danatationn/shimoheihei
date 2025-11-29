@@ -1,9 +1,3 @@
-/*
-	-= MersenneTwister =-
-	this tries to replicate the 29-10-99 variant of MT19937, used in cs2
-	https://www.math.sci.hiroshima-u.ac.jp/m-mat/MT/VERSIONS/C-LANG/991029/mt19937int.c
-*/
-
 const N: usize = 624;
 const M: usize = 397;
 const DEFAULT_SEED: u32 = 4357;
@@ -19,6 +13,8 @@ pub struct MersenneTwister {
 }
 
 impl MersenneTwister {
+	// this tries to replicate the 29-10-99 variant of MT19937, used in cs2
+	// https://www.math.sci.hiroshima-u.ac.jp/m-mat/MT/VERSIONS/C-LANG/991029/mt19937int.c
 	pub fn new() -> Self {
 		// mti==N+1 means mt[N] is not initialized
 		Self { state_array: [0u32; N], mt_index: N + 1 }
@@ -81,10 +77,6 @@ impl MersenneTwister {
 	}
 }
 
-/*
-	-= Beaufort cipher =-
-	Hi Beaufort
-*/
 
 const CHARSET: &[u8; 52] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 

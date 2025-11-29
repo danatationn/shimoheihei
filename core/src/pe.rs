@@ -2,31 +2,44 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use pelite::{FileMap, PeFile};
 use pelite::resources::Name;
-use std::fs;
+use std::{fmt, fs};
 use blowfish::BlowfishLE;
 use blowfish::cipher::{BlockDecrypt, KeyInit};
 use blowfish::cipher::generic_array::GenericArray;
-use anyhow::Result;
+use thiserror::Error;
 
-pub struct Cs2PeFile {
+pub struct Cs2Pe {
 	pub key_code: Vec<u8>,
 	pub v_code: Vec<u8>,
 	pub v_code2: Vec<u8>,
 	pub toc_seed: u32,
 }
 
-impl Cs2PeFile {
-	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self> {
+#[derive(Error, Debug)]
+pub enum Cs2PeError {
+	#[error("Io error: {0}")]
+	IoError(#[from] std::io::Error),
+	#[error("Pe error: {0}")]
+	PeError(#[from] pelite::Error),
+	#[error("Pe find error: {0}")]
+	FindError(#[from] pelite::resources::FindError),
+
+	#[error("Invalid Cs2 PE!")]
+	InvalidCs2Pe()
+}
+
+impl Cs2Pe {
+	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self, Cs2PeError> {
 		let map = FileMap::open(&path)
 			.expect("Couldn't read the executable!");
 		let file = PeFile::from_bytes(&map)?;
 		Self::from_file(file)
 	}
 
-	pub fn from_file(file: PeFile) -> Result<Self> {
+	pub fn from_file(file: PeFile) -> Result<Self, Cs2PeError> {
 		let valid = check_cs2_pe(&file)?;
 		if !valid {
-			panic!("This executable is invalid!")
+			return Err(Cs2PeError::InvalidCs2Pe())
 		}
 
 		let resources = file.resources()
@@ -81,10 +94,31 @@ impl Cs2PeFile {
 			toc_seed = !toc_seed;
 		}
 
-		Ok(Cs2PeFile {key_code, v_code, v_code2, toc_seed})
+		Ok(Cs2Pe {key_code, v_code, v_code2, toc_seed})
 	}
 }
 
+impl fmt::Display for Cs2Pe {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(
+			f, "Key: {}\nVCode2: {}\nSeed: {}",
+			String::from_utf8_lossy(&self.key_code),
+			String::from_utf8_lossy(&self.v_code2),
+			&self.toc_seed
+		)
+	}
+}
+
+impl fmt::Debug for Cs2Pe {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		f.debug_struct("Cs2Pe")
+			.field("key_code", &self.key_code)
+			.field("v_code", &self.v_code)
+			.field("v_code2", &self.v_code2)
+			.field("toc_seed", &self.toc_seed)
+			.finish()
+	}
+}
 
 pub fn find_cs2_pe<P: AsRef<Path>>(top_dir: P) -> Option<PathBuf> {
 	let top_dir = top_dir.as_ref();
@@ -114,13 +148,13 @@ pub fn find_cs2_pe<P: AsRef<Path>>(top_dir: P) -> Option<PathBuf> {
 	None
 }
 
-pub fn check_cs2_pe_path<P: AsRef<Path>>(path: P) -> Result<bool> {
+pub fn check_cs2_pe_path<P: AsRef<Path>>(path: P) -> Result<bool, Cs2PeError> {
 	let map = FileMap::open(&path)?;
 	let file = PeFile::from_bytes(&map)?;
 	check_cs2_pe(&file)
 }
 
-pub fn check_cs2_pe(file: &PeFile) -> Result<bool> {
+pub fn check_cs2_pe(file: &PeFile) -> Result<bool, Cs2PeError> {
 	let mut valid: bool = false;
 
 	let resources = file.resources()?;
