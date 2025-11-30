@@ -35,7 +35,6 @@ impl Hgx {
 			return Err(HgxError::InvalidSignature())
 		}
 
-		// ignoring header size (it's always 12)
 		file.seek(SeekFrom::Start(4*2))?;
 
 		let mut version_pair = [0u8; 2];
@@ -46,9 +45,9 @@ impl Hgx {
 		let mut frames = Vec::new();
 		loop {
 			let frame = HgxFrame::from(&mut file, pos)?;
-			pos = frame.next_pos as u64;
+			pos += frame.next_pos as u64;
 			frames.push(frame);
-			if pos == 0 {
+			if frames.last().unwrap().next_pos == 0 {
 				break
 			}
 		}
@@ -101,6 +100,7 @@ impl HgxFrame {
 			file.read_exact(&mut name_bytes)?;
 			let next_offset = file.read_le::<u32>()?;
 			let length = file.read_le::<u32>()?;
+			// println!("\"{}\" offset={next_offset}; length={length}", String::from_utf8_lossy(&name_bytes));
 			let tag = HgxTag::from(file, name_bytes, length)?;
 			tags.push(tag);
 			if next_offset == 0 {
@@ -152,21 +152,27 @@ pub enum HgxTag {
 
 impl HgxTag {
 	pub fn from<F: Read + Seek>(file: &mut F, name_bytes: [u8; 8], length: u32) -> Result<Self, HgxTagError> {
-		if name_bytes.starts_with(b"img") && !name_bytes.starts_with(b"img_") {
+		let name: String = name_bytes.iter()
+		    .take_while(|&&b| b != 0)
+			.filter(|&&b| b.is_ascii_graphic())
+		    .map(|&b| b as char)
+			.collect();
+
+		if name.starts_with("img") && !name.starts_with("img_") {
 			return Ok(Self::Img(ImgTag::parse(file, length)?))
 		}
-		if name_bytes.starts_with(b"ats") {
+		if name.starts_with("ats") {
 			return Ok(Self::Ats(AtsTag::parse(file)?))
 		}
 
-		match &name_bytes {
-			b"stdinfo\0" => Ok(Self::StdInfo(StdInfoTag::parse(file)?)),
-			b"img_jpg\0" => Ok(Self::ImgJpg(ImgJpgTag::parse(file, length)?)),
-			b"img_al\0\0"=> Ok(Self::ImgAl(ImgAlTag::parse(file)?)),
-			b"img_jpa\0" => Ok(Self::ImgJpa()),
-			b"img_wbp\0" => Ok(Self::ImgWbp(ImgWbpTag::parse(file, length)?)),
-			b"cptype\0\0"=> Ok(Self::CpType(CpTypeTag::parse(file)?)),
-			b"imgmode\0" => Ok(Self::ImgMode(ImgModeTag::parse(file)?)),
+		match name.as_str() {
+			"stdinfo" => Ok(Self::StdInfo(StdInfoTag::parse(file)?)),
+			"img_jpg" => Ok(Self::ImgJpg(ImgJpgTag::parse(file, length)?)),
+			"img_al"=> Ok(Self::ImgAl(ImgAlTag::parse(file)?)),
+			"img_jpa" => Ok(Self::ImgJpa()),
+			"img_wbp" => Ok(Self::ImgWbp(ImgWbpTag::parse(file, length)?)),
+			"cptype"=> Ok(Self::CpType(CpTypeTag::parse(file)?)),
+			"imgmode" => Ok(Self::ImgMode(ImgModeTag::parse(file)?)),
 			_ => return Err(HgxTagError::UnknownType(String::from_utf8_lossy(&name_bytes).to_string()))
 		}
 	}
@@ -219,7 +225,11 @@ impl fmt::Display for HgxTag {
 	}
 }
 
-// impl fmt::Debug for HgxTag  todo: I CAN'T BE BOTHERED
+// impl fmt::Debug for HgxTag {
+	// fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//
+	// }
+// }
 
 pub struct StdInfoTag {
 	pub width: u32,
@@ -323,8 +333,8 @@ pub struct AtsTag {
 	pub x: i32,
 	pub y: i32,
 	pub width: u32,
-	pub height: u32
-	// pub color
+	pub height: u32,
+	pub color: u32
 }
 
 impl AtsTag {
@@ -333,8 +343,8 @@ impl AtsTag {
 			x: file.read_le::<i32>()?,
 			y: file.read_le::<i32>()?,
 			width: file.read_le::<u32>()?,
-			height: file.read_le::<u32>()?
-			// color:
+			height: file.read_le::<u32>()?,
+			color: file.read_le::<u32>()?
 		})
 	}
 }

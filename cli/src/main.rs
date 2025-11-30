@@ -1,6 +1,7 @@
 mod extract;
 mod find_pe;
 mod info;
+mod convert;
 
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ enum Commands {
     Info(InfoArgs),
     Extract(ExtractArgs),
     FindPe(FindPeArgs),
+    Convert(ConvertArgs)
 }
 
 #[derive(Args)]
@@ -43,6 +45,11 @@ struct FindPeArgs {
     folder_path: PathBuf,
 }
 
+#[derive(Args)]
+struct ConvertArgs {
+	file_path: PathBuf
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -50,5 +57,6 @@ fn main() {
         Commands::Info(args) => info::display_info(args),
         Commands::Extract(args) => extract::extract_kif(args).unwrap(),
         Commands::FindPe(args) => find_pe::find_pe(args),
+        Commands::Convert(args) => convert::convert(args),
     }
 }

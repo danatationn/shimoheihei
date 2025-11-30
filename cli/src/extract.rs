@@ -1,6 +1,6 @@
 use crate::ExtractArgs;
 use core::kif::Kif;
-use core::pe::Cs2PeFile;
+use core::pe::Cs2Pe;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Error, Write};
@@ -34,7 +34,7 @@ pub fn extract_kif(args: &ExtractArgs) -> Result<(), Error> {
 	        if args.toc_seed.is_some() {
 	            Kif::from_path_with_seed(&path, args.toc_seed.unwrap()).unwrap()
 	        } else if args.pe_path.is_some() {
-	            let cs2_pe = Cs2PeFile::from_path(&args.pe_path.as_ref().unwrap()).unwrap();
+	            let cs2_pe = Cs2Pe::from_path(&args.pe_path.as_ref().unwrap()).unwrap();
 	            Kif::from_path_with_seed(&path, cs2_pe.toc_seed).unwrap()
 	        } else {
 	           	println!("The KIF is encrypted and no decryption keys were provided! The file names will be garbled but the data won't be.");

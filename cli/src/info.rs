@@ -38,7 +38,7 @@ pub fn display_info(args: &InfoArgs) -> () {
     if let Ok(hgx) = Hgx::from(&path) {
 	   	println!("{hgx}");
 		for frame in hgx.frames {
-			println!("{frame}");
+			println!("\n{frame}");
 			for tag in frame.tags {
 				println!("{tag}");
 			}
