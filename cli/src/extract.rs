@@ -1,75 +1,74 @@
 use crate::ExtractArgs;
-use core::kif::Kif;
-use core::pe::Cs2Pe;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::{Error, Write};
-use std::{fs, io};
+use core::{hgx::{Hgx, HgxTag}, kif::Kif, pe::Cs2Pe};
+use anyhow::Result;
+use std::{fs::{self, File}, io::{Seek, SeekFrom, Write}};
 
-pub fn extract_kif(args: &ExtractArgs) -> Result<(), Error> {
-    let path = args.kif_path.canonicalize()?;
-    let parent = path.parent().unwrap().to_path_buf();
-    let stem = path.file_stem().unwrap();
+pub fn extract(args: &ExtractArgs) -> Result<()> {
+	let path = args.kif_path.canonicalize()?;
 
-    if path.extension().unwrap() != OsStr::new("int") {
-        panic!("File isn't an .int !!");
-    }
+    if let Ok(mut kif) = Kif::from(&path) {
+		if let Some(toc_seed) = args.toc_seed {
+			kif.deobfuscate_entries(toc_seed)?;
+		} else if let Some(pe_path) = &args.pe_path {
+			let cs2_pe = Cs2Pe::from_path(pe_path)?;
+			kif.deobfuscate_entries(cs2_pe.toc_seed)?;
+		}
+		let mut kif_file = File::open(&path)?;
 
-    let dest = if let Some(dest) = &args.dest_path {
-        dest
-    } else {
-        &parent.join(stem)
-    };
+		let dir = path.with_extension("");
+		fs::create_dir_all(&dir)?;
 
-    if dest.is_file() {
-        panic!("The destination cannot be a file!");
-    }
-    if !dest.exists() {
-        fs::create_dir_all(dest)?;
-    }
-
-    let mut kif_file = File::open(&path)?;
-	let kif = match Kif::from(&path) {
-		 Ok(kif) if kif.blowfish_key.is_some() => {
-	        if args.toc_seed.is_some() {
-	            Kif::from_path_with_seed(&path, args.toc_seed.unwrap()).unwrap()
-	        } else if args.pe_path.is_some() {
-	            let cs2_pe = Cs2Pe::from_path(&args.pe_path.as_ref().unwrap()).unwrap();
-	            Kif::from_path_with_seed(&path, cs2_pe.toc_seed).unwrap()
-	        } else {
-	           	println!("The KIF is encrypted and no decryption keys were provided! The file names will be garbled but the data won't be.");
-	           	kif
+		for entry in kif.entries {
+			if entry.file_name_raw.starts_with(b"__key__.dat") {
+				continue
 			}
-	    },
-	    Ok(kif) => kif,
-	    Err(_) => panic!("The KIF is invalid!"),
-	};
+			let file_path = dir.join(entry.get_file_name() + ".part");
+			let mut file = File::create(&file_path)?;
+			kif_file.seek(SeekFrom::Start(entry.offset as u64))?;
 
-    if kif.blowfish_key.is_some() {
-        println!("Extracting {:?} {}", stem, kif.entry_count);
-        let mut i = 0;
-        for mut entry in kif.entries {
-            if entry.file_name_raw.starts_with(b"__key__.dat") {
-                continue;
-            }
-            let file_path = dest.join(entry.get_file_name());
+			let mut pos = 0;
+			while pos < entry.length {
+				let data = entry.stream_extract(&mut kif_file)?;
+				file.write(&data)?;
+				pos += data.len() as u32;
+			}
+			fs::rename(&file_path, &file_path.with_extension(""))?;
+		}
+		return Ok(())
+	}
+	if let Ok(hgx) = Hgx::from(&path) {
+		let mut hgx_file = File::open(&path)?;
 
-            i += 1;
-            let fraction = i as f32 / kif.entry_count as f32;
-            print!(
-                "\r\x1B[K{:.1}% - {}",
-                fraction * 100.0,
-                entry.get_file_name()
-            );
-            io::stdout().flush()?;
-            let mut file = File::create(file_path)?;
-            let data = entry.extract_data(&mut kif_file).unwrap();
-            file.write_all(&data)?;
-        }
-        println!("\r\x1B[K100.0% - Done!");
-    } else {
-        println!("no blowfhs");
-    }
+	   	for frame in hgx.frames {
+			for tag in &frame.tags {
+				if let HgxTag::Img(img_tag) = &tag {
+					let std_info = if let HgxTag::StdInfo(std_info) = &frame.tags[0] {
+						Some(std_info)
+					} else {
+						panic!("what");
+					};
 
-    Ok(())
+					let data = img_tag.convert(&mut hgx_file, std_info.unwrap(), image::ImageFormat::Bmp)?;
+
+					let file_path = path.with_extension("bmp");
+					let mut file = File::create(&file_path)?;
+					file.write(&data)?;
+					println!("Extracted to {file_path:?}!");
+				}
+				if let HgxTag::ImgJpg(_img_jpg_tag) = &tag {
+					println!("img jpg tag");
+				}
+				if let HgxTag::ImgAl(_img_al_tag) = &tag {
+					println!("img al tag");
+				}
+				if let HgxTag::ImgWbp(_img_wbp_tag) = &tag {
+					println!("img webp tag");
+				}
+			}
+		}
+		return Ok(())
+	}
+
+	println!("This file format is not yet supported!");
+	Ok(())
 }

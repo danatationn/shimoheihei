@@ -1,7 +1,10 @@
-use std::{fmt, fs::File, io::{Read, Seek, SeekFrom}, path::Path};
+use std::{fmt, fs::File, io::{Cursor, Read, Seek, SeekFrom}, path::Path};
+use flate2::read::ZlibDecoder;
 use thiserror::Error;
+use image::{self, Rgb, Rgba};
 
-use crate::ReadExt;
+use crate::{ReadExt, crypt::unpack_value};
+use crate::crypt::BitReader;
 
 pub struct Hgx {
 	pub signature: [u8; 4],
@@ -84,6 +87,11 @@ pub struct HgxFrame {
 pub enum HgxFrameError {
 	#[error("Io error: {0}")]
 	IoError(#[from] std::io::Error),
+
+	#[error("The image info was not read first!")]
+	StdInfoNotAtStart(),
+	#[error("The CG page type was not read last!")]
+	CpTypeNotAtEnd(),
 	#[error("Tag error: {0}")]
 	TagError(#[from] HgxTagError)
 }
@@ -104,7 +112,16 @@ impl HgxFrame {
 			let tag = HgxTag::from(file, name_bytes, length)?;
 			tags.push(tag);
 			if next_offset == 0 {
-				break
+				match tags.last() {
+					Some(HgxTag::CpType(_)) => break,
+					_ => return Err(HgxFrameError::CpTypeNotAtEnd())
+				}
+			}
+			if tags.len() == 1 {
+				match tags.first() {
+					Some(HgxTag::StdInfo(_)) => continue,
+					_ => return Err(HgxFrameError::StdInfoNotAtStart())
+				}
 			}
 		}
 
@@ -134,8 +151,17 @@ impl fmt::Debug for HgxFrame {
 pub enum HgxTagError {
 	#[error("Io error: {0}")]
 	IoError(#[from] std::io::Error),
+	#[error("Image error: {0}")]
+	ImageError(#[from] image::ImageError),
+
 	#[error("Unknown tag type: {0}")]
-	UnknownType(String)
+	UnknownType(String),
+	#[error("Invalid Elias Gamma data: {0}")]
+	InvalidGamma(String),
+	#[error("Invalid RLE data")]
+	InvalidRle(),
+	#[error("Invalid Delta data: {0}")]
+	InvalidDelta(String),
 }
 
 pub enum HgxTag {
@@ -154,7 +180,6 @@ impl HgxTag {
 	pub fn from<F: Read + Seek>(file: &mut F, name_bytes: [u8; 8], length: u32) -> Result<Self, HgxTagError> {
 		let name: String = name_bytes.iter()
 		    .take_while(|&&b| b != 0)
-			.filter(|&&b| b.is_ascii_graphic())
 		    .map(|&b| b as char)
 			.collect();
 
@@ -284,6 +309,160 @@ impl ImgTag {
 
 		Ok(Self { slice_start, slice_length, compressed_data_length, decompressed_data_length, compressed_cmd_length, decompressed_cmd_length, data_pos: pos + 4*6 })
 	}
+
+	pub fn read_raw<F: Read + Seek>(&self, file: &mut F, std_info_tag: &StdInfoTag) -> Result<Vec<u8>, HgxTagError> {
+		file.seek(SeekFrom::Start(self.data_pos))?;
+		let mut inflated_data_buf = vec![0u8; self.compressed_data_length as usize];
+		file.read_exact(&mut inflated_data_buf)?;
+		let mut inflated_cmd_buf = vec![0u8; self.compressed_cmd_length as usize];
+		file.read_exact(&mut inflated_cmd_buf)?;
+
+		let mut data_buf = vec![0u8; self.decompressed_data_length as usize];
+		let mut cmd_buf = vec![0u8; self.decompressed_cmd_length as usize];
+		let mut decoder = ZlibDecoder::new(&inflated_data_buf[..]);
+		decoder.read_exact(&mut data_buf)?;
+		decoder.reset(&inflated_cmd_buf[..]);
+		decoder.read_exact(&mut cmd_buf)?;
+
+		let unrle_buf = self.unrle_data(&cmd_buf, &data_buf)?;
+		let delta_filter_buf = self.delta_filter(&unrle_buf, std_info_tag.width, std_info_tag.height, std_info_tag.bit_depth)?;
+
+		Ok(delta_filter_buf)
+	}
+
+	pub fn convert<F: Read + Seek>(&self, file: &mut F, std_info_tag: &StdInfoTag, format: image::ImageFormat) -> Result<Vec<u8>, HgxTagError> {
+		let raw_data = self.read_raw(file, std_info_tag).unwrap();
+		let mut data = Cursor::new(Vec::new());
+
+		if std_info_tag.bit_depth == 24 {
+			let img_buffer = image::ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(std_info_tag.width, std_info_tag.height, raw_data).unwrap();
+			let img = image::DynamicImage::ImageRgb8(img_buffer);
+			img.write_to(&mut data, format)?;
+		} else {
+			let img_buffer = image::ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(std_info_tag.width, std_info_tag.height, raw_data).unwrap();
+			let img = image::DynamicImage::ImageRgba8(img_buffer);
+			img.write_to(&mut data, format)?;
+		}
+
+		Ok(data.into_inner())
+	}
+
+	fn unrle_data(&self, cmd_buf: &[u8], data_buf: &[u8]) -> Result<Vec<u8>, HgxTagError> {
+		let mut bit_reader = BitReader::new(&cmd_buf);
+		let mut copy_flag = bit_reader.read_bit();
+		let buf_length = bit_reader.read_elias_gamma();
+		if buf_length == 0 {
+			return Err(HgxTagError::InvalidGamma("Buffer length is 0".to_string()))
+		}
+
+		let mut buf = Vec::with_capacity(buf_length);
+		let mut data_pos = 0;
+		let mut data_left = data_buf.len();
+		let mut buf_left = buf_length;
+
+		while buf_left > 0 {
+			let chunk_length = bit_reader.read_elias_gamma();
+			if chunk_length == 0 {
+				return Err(HgxTagError::InvalidGamma("Chunk length is 0".to_string()))
+			}
+			if chunk_length > buf_left {
+				return Err(HgxTagError::InvalidRle());
+			}
+
+			if copy_flag {
+				if chunk_length > data_left {
+					return Err(HgxTagError::InvalidRle())
+				}
+				buf.extend_from_slice(&data_buf[data_pos..data_pos + chunk_length]);
+				data_pos += chunk_length;
+				data_left -= chunk_length;
+			} else {
+				// let zeros = vec![0u8; chunk_length];
+				// buf.extend_from_slice(&zeros);
+				buf.extend(std::iter::repeat(0u8).take(chunk_length));
+			}
+			buf_left -= chunk_length;
+			copy_flag = !copy_flag;
+		}
+		if buf.len() != (buf.len() / 4) * 4 {
+			return Err(HgxTagError::InvalidRle())
+		}
+
+		Ok(buf)
+	}
+
+	fn delta_filter(&self, unrle_buf: &[u8], width: u32, height: u32, bit_depth: u32) -> Result<Vec<u8>, HgxTagError> {
+		let sect_length = unrle_buf.len() / 4;
+		let sect1 = &unrle_buf[0..sect_length];
+		let sect2 = &unrle_buf[sect_length..sect_length*2];
+		let sect3 = &unrle_buf[sect_length*2..sect_length*3];
+		let sect4 = &unrle_buf[sect_length*3..sect_length*4];
+
+		let mut table1 = [0u32; 256];
+		let mut table2 = [0u32; 256];
+		let mut table3 = [0u32; 256];
+		let mut table4 = [0u32; 256];
+		for i in 0..256 {
+			let mut value = (i as u32) & 0xC0 as u32;
+			value <<= 6;
+			value |= (i as u32) & 0x30;
+			value <<= 6;
+			value |= (i as u32) & 0x0C;
+			value <<= 6;
+			value |= (i as u32) & 0x03;
+
+			table4[i] = value;
+			table3[i] = value << 2;
+			table2[i] = value << 4;
+			table1[i] = value << 6;
+		}
+
+		let depth_bytes = bit_depth / 8;
+		let stride = depth_bytes * width;
+		let buf_length = (stride * height) as usize;
+		let mut buf = vec![0u8; buf_length];
+
+		let mut out_pos = 0;
+		for i in 0..sect_length {
+			if out_pos+4 > buf.len() {
+				return Err(HgxTagError::InvalidDelta("Buffer overflow".to_string()))
+			}
+			let value = table1[sect1[i] as usize] |
+				table2[sect2[i] as usize] |
+				table3[sect3[i] as usize] |
+			 	table4[sect4[i] as usize];
+
+			buf[out_pos] = unpack_value((value >> 0) as u8);
+			buf[out_pos + 1] = unpack_value((value >> 8) as u8);
+			buf[out_pos + 2] = unpack_value((value >> 16) as u8);
+			buf[out_pos + 3] = unpack_value((value >> 24) as u8);
+
+			out_pos += 4;
+		}
+
+		for x in depth_bytes..stride {
+			let x = x as usize;
+			if x >= buf.len() {
+				return Err(HgxTagError::InvalidDelta(2.to_string()));
+			}
+			buf[x] = buf[x].wrapping_add(buf[x - depth_bytes as usize]);
+		}
+
+		for y in 1..height {
+			let line_start = y * stride;
+			let prev_start = (y - 1) * stride;
+
+			if (line_start + stride) as usize > buf.len() {
+				return Err(HgxTagError::InvalidDelta(3.to_string()))
+			}
+
+			for x in 0..stride {
+				buf[(line_start + x) as usize] = buf[(line_start + x) as usize].wrapping_add(buf[(prev_start + x) as usize]);
+			}
+		}
+
+		Ok(buf)
+	}
 }
 
 pub struct ImgJpgTag {
@@ -296,6 +475,28 @@ impl ImgJpgTag {
 		let data_pos = file.stream_position()?;
 		file.seek_relative(length as i64)?;
 		Ok(Self { length, data_pos })
+	}
+
+	pub fn read<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, HgxTagError> {
+		file.seek(SeekFrom::Start(self.data_pos))?;
+		let mut buf = vec![0u8; self.length as usize];
+		file.read_exact(&mut buf)?;
+		Ok(buf)
+	}
+
+	pub fn stream_read<F: Read + Seek>(&self, file: &mut F, pos: u64, chunk_size: usize) -> Result<Vec<u8>, HgxTagError> {
+		let start_pos = self.data_pos + pos;
+		let remaining_bytes = (self.length as u64).saturating_sub(pos);
+		let read_size = chunk_size.min(remaining_bytes as usize);
+
+		if read_size == 0 {
+			return Ok(Vec::new());
+		}
+
+		file.seek(SeekFrom::Start(start_pos))?;
+		let mut buf = vec![0u8; read_size];
+		file.read_exact(&mut buf)?;
+		Ok(buf)
 	}
 }
 
@@ -314,6 +515,21 @@ impl ImgAlTag {
 
 		Ok(Self { compressed_length, decompressed_length, data_pos: pos + 4*2 })
 	}
+
+	pub fn read_extract<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, HgxTagError> {
+		let compressed_data = self.read(file)?;
+		let mut decoder = flate2::read::ZlibDecoder::new(&compressed_data[..]);
+		let mut data = Vec::new();
+		decoder.read_to_end(&mut data)?;
+		Ok(data)
+	}
+
+	pub fn read<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, HgxTagError> {
+		file.seek(SeekFrom::Start(self.data_pos))?;
+		let mut buf = vec![0u8; self.compressed_length as usize];
+		file.read_exact(&mut buf)?;
+		Ok(buf)
+	}
 }
 
 pub struct ImgWbpTag {
@@ -326,6 +542,28 @@ impl ImgWbpTag {
 		let data_pos = file.stream_position()?;
 		file.seek_relative(length as i64)?;
 		Ok(Self { length, data_pos })
+	}
+
+	pub fn read<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, HgxTagError> {
+		file.seek(SeekFrom::Start(self.data_pos))?;
+		let mut buf = vec![0u8; self.length as usize];
+		file.read_exact(&mut buf)?;
+		Ok(buf)
+	}
+
+	pub fn stream_read<F: Read + Seek>(&self, file: &mut F, pos: u64, chunk_size: usize) -> Result<Vec<u8>, HgxTagError> {
+		let start_pos = self.data_pos + pos;
+		let remaining_bytes = (self.length as u64).saturating_sub(pos);
+		let read_size = chunk_size.min(remaining_bytes as usize);
+
+		if read_size == 0 {
+			return Ok(Vec::new());
+		}
+
+		file.seek(SeekFrom::Start(start_pos))?;
+		let mut buf = vec![0u8; read_size];
+		file.read_exact(&mut buf)?;
+		Ok(buf)
 	}
 }
 

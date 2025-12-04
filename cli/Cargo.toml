@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 core = { path = "../core" }
 clap = { version = "4.5.48", features = ["derive"] }
+anyhow = "1.0.100"
+image = "0.25.9"

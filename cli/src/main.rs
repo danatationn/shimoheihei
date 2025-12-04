@@ -47,7 +47,8 @@ struct FindPeArgs {
 
 #[derive(Args)]
 struct ConvertArgs {
-	file_path: PathBuf
+	file_path: PathBuf,
+	dest_path: PathBuf
 }
 
 fn main() {
@@ -55,7 +56,7 @@ fn main() {
 
     match &cli.command {
         Commands::Info(args) => info::display_info(args),
-        Commands::Extract(args) => extract::extract_kif(args).unwrap(),
+        Commands::Extract(args) => extract::extract(args).unwrap(),
         Commands::FindPe(args) => find_pe::find_pe(args),
         Commands::Convert(args) => convert::convert(args),
     }

@@ -3,7 +3,6 @@ use crate::crypt::{MersenneTwister, beaufort_cipher};
 use blowfish::BlowfishLE;
 use blowfish::cipher::generic_array::GenericArray;
 use blowfish::cipher::{BlockDecrypt, KeyInit};
-use std::cmp::min;
 use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -68,15 +67,19 @@ impl Kif {
 	pub fn from_path_with_seed<P: AsRef<Path>>(path: &P, toc_seed: u32) -> Result<Self, KifError> {
 		let mut kif = Self::from(path)?;
 		kif.toc_seed = Some(toc_seed);
+		kif.deobfuscate_entries(toc_seed)?;
 
-		if let Some(blowfish) = &kif.blowfish {
-			for entry in &mut kif.entries {
+		Ok(kif)
+	}
+
+	pub fn deobfuscate_entries(&mut self, toc_seed: u32) -> Result<(), KifError> {
+		if let Some(blowfish) = &self.blowfish {
+			for entry in &mut self.entries {
 				entry.blowfish = Some(Rc::clone(blowfish));
 				entry.deobfuscate_file_name(toc_seed);
 			}
 		}
-
-		Ok(kif)
+		Ok(())
 	}
 }
 
@@ -117,12 +120,12 @@ pub struct KifEntry {
 
 #[derive(Error, Debug)]
 pub enum KifEntryError {
-	#[error("{0}")]
-	KeyData(String),
+	#[error("Tried reading data from __key__.dat")]
+	KeyData(),
 	#[error("Io error: {0}")]
 	Io(#[from] std::io::Error),
 	#[error("Slice error: {0}")]
-	Slice(#[from] std::array::TryFromSliceError)
+	Slice(#[from] std::array::TryFromSliceError),
 }
 
 impl KifEntry {
@@ -181,9 +184,9 @@ impl KifEntry {
 		Ok(())
 	}
 
-	pub fn extract_data<F: Read + Seek>(&mut self, file: &mut F) -> Result<Vec<u8>, KifEntryError> {
+	pub fn extract<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, KifEntryError> {
 		if self.file_name_raw.starts_with(b"__key__.dat") {
-			return Err(KifEntryError::KeyData("Attempted to extract __key__.dat".to_string()));
+			return Err(KifEntryError::KeyData());
 		}
 		if self.blowfish.is_none() {
 			panic!("Entry couldn't be decrypted");
@@ -192,26 +195,52 @@ impl KifEntry {
 		let blowfish = self.blowfish.as_ref().unwrap();
 
 		let mut data: Vec<u8> = Vec::with_capacity(self.length as usize);
-		let mut buffer = [0u8; 8];
+		let mut buf = [0u8; 8];
 		let mut bytes_remaining = self.length as usize;
 
 		file.seek(SeekFrom::Start(self.offset as u64))?;
 
 		while bytes_remaining > 0 {
-			let bytes_to_read = min(bytes_remaining, 8);
-			file.read_exact(&mut buffer[..bytes_to_read])?;
+			let bytes_to_read = bytes_remaining.min(8);
+			file.read_exact(&mut buf[..bytes_to_read])?;
 
 			if bytes_to_read == 8 {
-				let mut block = GenericArray::clone_from_slice(&buffer);
+				let mut block = GenericArray::clone_from_slice(&buf);
 				blowfish.decrypt_block(&mut block);
 				data.extend_from_slice(block.as_slice());
 			} else {
-				data.extend_from_slice(&buffer[..bytes_to_read]);
+				data.extend_from_slice(&buf[..bytes_to_read]);
 			}
 
 			bytes_remaining -= bytes_to_read;
 		}
 		Ok(data)
+	}
+
+	pub fn stream_extract<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, KifEntryError> {
+		if self.file_name_raw.starts_with(b"__key__.dat") {
+			return Err(KifEntryError::KeyData())
+		}
+
+		let pos = file.stream_position()?;
+		let bytes_remaining = self.length.saturating_sub(pos as u32 - self.offset) as usize;
+		let read_size = bytes_remaining.min(8);
+
+		if read_size == 0 {
+			return Ok(Vec::new())
+		}
+
+		let mut buf = vec![0u8; read_size];
+		file.read_exact(&mut buf)?;
+
+		if read_size == 8 {
+			if let Some(blowfish) = &self.blowfish {
+				let mut block = GenericArray::from_mut_slice(&mut buf);
+				blowfish.decrypt_block(&mut block);
+			}
+		}
+
+		Ok(buf)
 	}
 
 	pub fn get_file_name(&self) -> String {

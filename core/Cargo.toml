@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.100"
 thiserror = "2.0.17"
 pelite = "0.10.0"
 blowfish = "0.9.1"
+flate2 = "1.1.5"
+image = "0.25.9"
