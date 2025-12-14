@@ -46,7 +46,10 @@ impl Hgx {
 
 		let mut pos = 4*3;
 		let mut frames = Vec::new();
+		let mut i = 0;
 		loop {
+			i += 1;
+			println!("{i}/{}, frames", frames.len());
 			let frame = HgxFrame::from(&mut file, pos)?;
 			pos += frame.next_pos as u64;
 			frames.push(frame);
@@ -89,9 +92,9 @@ pub enum HgxFrameError {
 	IoError(#[from] std::io::Error),
 
 	#[error("The image info was not read first!")]
-	StdInfoNotAtStart(),
-	#[error("The CG page type was not read last!")]
-	CpTypeNotAtEnd(),
+	UnexpectedTagAtStart(),
+	#[error("Nor CG page type or image mode were read last!")]
+	UnexpectedTagAtEnd(),
 	#[error("Tag error: {0}")]
 	TagError(#[from] HgxTagError)
 }
@@ -106,21 +109,26 @@ impl HgxFrame {
 		loop {
 			let mut name_bytes = [0u8; 8];
 			file.read_exact(&mut name_bytes)?;
+			// println!("{name_bytes:?}");
 			let next_offset = file.read_le::<u32>()?;
+			// println!("{next_offset}");
 			let length = file.read_le::<u32>()?;
-			// println!("\"{}\" offset={next_offset}; length={length}", String::from_utf8_lossy(&name_bytes));
+			// println!("{length}");
+			println!("\"{}\" offset={next_offset}; length={length}", String::from_utf8_lossy(&name_bytes));
 			let tag = HgxTag::from(file, name_bytes, length)?;
 			tags.push(tag);
 			if next_offset == 0 {
 				match tags.last() {
 					Some(HgxTag::CpType(_)) => break,
-					_ => return Err(HgxFrameError::CpTypeNotAtEnd())
+					Some(HgxTag::ImgMode(_)) => break,
+					_ => return Err(HgxFrameError::UnexpectedTagAtEnd())
 				}
 			}
+			println!("got past offset check");
 			if tags.len() == 1 {
 				match tags.first() {
 					Some(HgxTag::StdInfo(_)) => continue,
-					_ => return Err(HgxFrameError::StdInfoNotAtStart())
+					_ => return Err(HgxFrameError::UnexpectedTagAtStart())
 				}
 			}
 		}
@@ -336,11 +344,11 @@ impl ImgTag {
 
 		if std_info_tag.bit_depth == 24 {
 			let img_buffer = image::ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(std_info_tag.width, std_info_tag.height, raw_data).unwrap();
-			let img = image::DynamicImage::ImageRgb8(img_buffer);
+			let img = image::DynamicImage::ImageRgb8(img_buffer).flipv();
 			img.write_to(&mut data, format)?;
 		} else {
 			let img_buffer = image::ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(std_info_tag.width, std_info_tag.height, raw_data).unwrap();
-			let img = image::DynamicImage::ImageRgba8(img_buffer);
+			let img = image::DynamicImage::ImageRgba8(img_buffer).flipv();
 			img.write_to(&mut data, format)?;
 		}
 
@@ -422,9 +430,12 @@ impl ImgTag {
 		let buf_length = (stride * height) as usize;
 		let mut buf = vec![0u8; buf_length];
 
+		let pixel_length = (width * height) as usize;
+		let max_pixels = sect_length.min(pixel_length);
+
 		let mut out_pos = 0;
-		for i in 0..sect_length {
-			if out_pos+4 > buf.len() {
+		for i in 0..max_pixels {
+			if out_pos+4 as usize > buf.len() {
 				return Err(HgxTagError::InvalidDelta("Buffer overflow".to_string()))
 			}
 			let value = table1[sect1[i] as usize] |
@@ -432,10 +443,10 @@ impl ImgTag {
 				table3[sect3[i] as usize] |
 			 	table4[sect4[i] as usize];
 
-			buf[out_pos] = unpack_value((value >> 0) as u8);
-			buf[out_pos + 1] = unpack_value((value >> 8) as u8);
-			buf[out_pos + 2] = unpack_value((value >> 16) as u8);
-			buf[out_pos + 3] = unpack_value((value >> 24) as u8);
+			buf[out_pos + 2] = unpack_value((value >> 0) as u8);  // r
+			buf[out_pos + 1] = unpack_value((value >> 8) as u8);  // g
+			buf[out_pos + 0] = unpack_value((value >> 16) as u8);  // b
+			buf[out_pos + 3] = unpack_value((value >> 24) as u8);  // a
 
 			out_pos += 4;
 		}

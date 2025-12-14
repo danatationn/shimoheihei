@@ -69,6 +69,8 @@ pub fn extract(args: &ExtractArgs) -> Result<()> {
 		return Ok(())
 	}
 
+	Hgx::from(&path)?;
+
 	println!("This file format is not yet supported!");
 	Ok(())
 }
