@@ -1,5 +1,5 @@
 use crate::ExtractArgs;
-use core::{hgx::{Hgx, HgxTag}, kif::Kif, pe::Cs2Pe};
+use shh_core::{hgx::{Hgx, HgxTag}, kif::Kif, pe::Cs2Pe};
 use anyhow::Result;
 use std::{fs::{self, File}, io::{Seek, SeekFrom, Write}};
 
@@ -38,10 +38,12 @@ pub fn extract(args: &ExtractArgs) -> Result<()> {
 	}
 	if let Ok(hgx) = Hgx::from(&path) {
 		let mut hgx_file = File::open(&path)?;
+		let mut img_found = false;
 
 	   	for frame in hgx.frames {
 			for tag in &frame.tags {
 				if let HgxTag::Img(img_tag) = &tag {
+					img_found = true;
 					let std_info = if let HgxTag::StdInfo(std_info) = &frame.tags[0] {
 						Some(std_info)
 					} else {
@@ -66,11 +68,13 @@ pub fn extract(args: &ExtractArgs) -> Result<()> {
 				}
 			}
 		}
+
+		if img_found == false {
+			println!("ERROR: This image doesn't use the proprietary format!");
+		}
 		return Ok(())
 	}
 
-	Hgx::from(&path)?;
-
-	println!("This file format is not yet supported!");
+	println!("ERROR: This file format is not yet supported!");
 	Ok(())
 }

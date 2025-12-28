@@ -1,7 +1,7 @@
 use crate::InfoArgs;
-use core::hgx::Hgx;
-use core::kif::Kif;
-use core::pe::Cs2Pe;
+use shh_core::hgx::Hgx;
+use shh_core::kif::Kif;
+use shh_core::pe::Cs2Pe;
 
 pub fn display_info(args: &InfoArgs) -> () {
     let path = args.file_path.canonicalize().expect("The path doesn't exist!");

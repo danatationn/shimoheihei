@@ -1,4 +1,4 @@
-use core::hgx::{Hgx, HgxTag};
+use shh_core::hgx::{Hgx, HgxTag};
 use std::{fs::File, io::Write};
 use image;
 
@@ -24,6 +24,7 @@ pub fn convert(args: &ConvertArgs) {
 
 		let mut hgx_file = File::open(file_path).unwrap();
 		for frame in hgx.frames {
+			let mut img_found = false;
 			let std_info = match &frame.tags[0] {
 				HgxTag::StdInfo(std_info) => std_info,
 				_ => panic!("The hgx file is invalid!")
@@ -31,6 +32,7 @@ pub fn convert(args: &ConvertArgs) {
 
 			for tag in &frame.tags {
 				if let HgxTag::Img(img) = &tag {
+					img_found = true;
 					let data = img.convert(&mut hgx_file, std_info, format).unwrap();
 
 					let img_path = args.dest_path.with_extension(ext);
@@ -39,7 +41,9 @@ pub fn convert(args: &ConvertArgs) {
 					println!("Extracted frame {} at {img_path:?}", frame.id);
 				}
 			}
+			if img_found == false {
+				println!("Couldn't find the image for frame {}", frame.id);
+			}
 		}
 	}
-
 }

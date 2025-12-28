@@ -46,15 +46,19 @@ impl Hgx {
 
 		let mut pos = 4*3;
 		let mut frames = Vec::new();
-		let mut i = 0;
+		// let mut i = 0;
 		loop {
-			i += 1;
-			println!("{i}/{}, frames", frames.len());
+			// i += 1;
+			// println!("> frame #{i}");
 			let frame = HgxFrame::from(&mut file, pos)?;
 			pos += frame.next_pos as u64;
+			let next_pos = frame.next_pos;
 			frames.push(frame);
-			if frames.last().unwrap().next_pos == 0 {
+			if next_pos == 0 {
+				// println!("> BREAK");
 				break
+			} else {
+				// println!("> {} isn't zero", frames.last().unwrap().next_pos);
 			}
 		}
 
@@ -109,12 +113,9 @@ impl HgxFrame {
 		loop {
 			let mut name_bytes = [0u8; 8];
 			file.read_exact(&mut name_bytes)?;
-			// println!("{name_bytes:?}");
 			let next_offset = file.read_le::<u32>()?;
-			// println!("{next_offset}");
 			let length = file.read_le::<u32>()?;
-			// println!("{length}");
-			println!("\"{}\" offset={next_offset}; length={length}", String::from_utf8_lossy(&name_bytes));
+			// println!("\"{}\" next_offset={next_offset}; length={length}", String::from_utf8_lossy(&name_bytes));
 			let tag = HgxTag::from(file, name_bytes, length)?;
 			tags.push(tag);
 			if next_offset == 0 {
@@ -124,14 +125,13 @@ impl HgxFrame {
 					_ => return Err(HgxFrameError::UnexpectedTagAtEnd())
 				}
 			}
-			println!("got past offset check");
 			if tags.len() == 1 {
 				match tags.first() {
 					Some(HgxTag::StdInfo(_)) => continue,
 					_ => return Err(HgxFrameError::UnexpectedTagAtStart())
 				}
 			}
-		}
+		};
 
 		Ok(HgxFrame { next_pos, id, tags })
 	}
@@ -191,7 +191,8 @@ impl HgxTag {
 		    .map(|&b| b as char)
 			.collect();
 
-		if name.starts_with("img") && !name.starts_with("img_") {
+		// TODO make this cleaner
+		if name.starts_with("img") && !name.starts_with("img_") && !name.starts_with("imgmode") {
 			return Ok(Self::Img(ImgTag::parse(file, length)?))
 		}
 		if name.starts_with("ats") {

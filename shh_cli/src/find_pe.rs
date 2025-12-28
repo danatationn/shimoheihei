@@ -1,4 +1,4 @@
-use core::pe::find_cs2_pe;
+use shh_core::pe::find_cs2_pe;
 use crate::FindPeArgs;
 
 pub fn find_pe(args: &FindPeArgs) -> () {
