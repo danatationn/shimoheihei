@@ -38,6 +38,10 @@ struct ExtractArgs {
     toc_seed: Option<u32>,
     #[arg(long)]
     dest_path: Option<PathBuf>,
+    #[arg(short, long, default_value = "bmp")]
+    convert_images_to: Option<String>,
+    #[arg(long)]
+    dont_convert_images: bool,
 }
 
 #[derive(Args)]

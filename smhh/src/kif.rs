@@ -1,20 +1,22 @@
 use crate::ReadExt;
 use crate::crypt::{MersenneTwister, beaufort_cipher};
 use blowfish::BlowfishLE;
+use blowfish::cipher::consts::U8;
 use blowfish::cipher::generic_array::GenericArray;
 use blowfish::cipher::{BlockDecrypt, KeyInit};
+use memmap2::{Mmap};
 use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 use thiserror::Error;
 
 pub struct Kif {
 pub entry_count: u32,
 pub entries: Vec<KifEntry>,
 pub blowfish_key: Option<[u8; 4]>,
-pub blowfish: Option<Rc<BlowfishLE>>,
+pub blowfish: Option<Arc<BlowfishLE>>,
 pub toc_seed: Option<u32>,
 }
 
@@ -43,12 +45,12 @@ impl Kif {
 
 		let entry = KifEntry::from(&mut file, 0)?;
 		let mut blowfish_key: Option<[u8; 4]> = None;
-		let mut blowfish: Option<Rc<BlowfishLE>> = None;
+		let mut blowfish: Option<Arc<BlowfishLE>> = None;
 		if entry.file_name_raw.starts_with(b"__key__.dat") {
 			let mut mt = MersenneTwister::from_seed(entry.length);
 			blowfish_key = Some(mt.next_u32().to_le_bytes());
 			let blowfish_inst = BlowfishLE::new_from_slice(&blowfish_key.unwrap()).unwrap();
-			blowfish = Some(Rc::new(blowfish_inst));
+			blowfish = Some(Arc::new(blowfish_inst));
 		}
 		entries.push(entry);
 
@@ -75,7 +77,7 @@ impl Kif {
 	pub fn deobfuscate_entries(&mut self, toc_seed: u32) -> Result<(), KifError> {
 		if let Some(blowfish) = &self.blowfish {
 			for entry in &mut self.entries {
-				entry.blowfish = Some(Rc::clone(blowfish));
+				entry.blowfish = Some(Arc::clone(blowfish));
 				entry.deobfuscate_file_name(toc_seed);
 			}
 		}
@@ -114,7 +116,7 @@ pub struct KifEntry {
 	pub file_name: Option<[u8; 64]>,
 	pub offset: u32,
 	pub length: u32,
-	pub blowfish: Option<Rc<BlowfishLE>>,
+	pub blowfish: Option<Arc<BlowfishLE>>,
 	pub decrypted: bool,
 }
 
@@ -122,6 +124,9 @@ pub struct KifEntry {
 pub enum KifEntryError {
 	#[error("Tried reading data from __key__.dat")]
 	KeyData(),
+	#[error("Corrupt header values ({0}. {1})")]
+	CorruptHeader(u32, String),
+
 	#[error("Io error: {0}")]
 	Io(#[from] std::io::Error),
 	#[error("Slice error: {0}")]
@@ -139,10 +144,10 @@ impl KifEntry {
 		Ok(KifEntry { index, file_name_raw, file_name: None, offset, length, blowfish: None, decrypted: false })
 	}
 
-	pub fn from_with_blowfish<F: Seek + Read>(file: &mut F, pos: u32, blowfish: Rc<BlowfishLE>) -> Result<KifEntry, KifEntryError> {
+	pub fn from_with_blowfish<F: Seek + Read>(file: &mut F, pos: u32, blowfish: Arc<BlowfishLE>) -> Result<KifEntry, KifEntryError> {
 		let mut entry = Self::from(file, pos)?;
-		entry.blowfish = Some(Rc::clone(&blowfish));
-		entry.deobfuscate_info(Rc::clone(&blowfish))?;
+		entry.blowfish = Some(Arc::clone(&blowfish));
+		entry.deobfuscate_info(Arc::clone(&blowfish))?;
 		Ok(entry)
 	}
 
@@ -162,7 +167,7 @@ impl KifEntry {
 		()
 	}
 
-	pub fn deobfuscate_info(&mut self, blowfish: Rc<BlowfishLE>) -> Result<(), KifEntryError> {
+	pub fn deobfuscate_info(&mut self, blowfish: Arc<BlowfishLE>) -> Result<(), KifEntryError> {
 		if self.decrypted == true {
 			return Ok(());
 		}
@@ -184,63 +189,32 @@ impl KifEntry {
 		Ok(())
 	}
 
-	pub fn extract<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, KifEntryError> {
+	pub fn extract(&self, file: &File) -> Result<Vec<u8>, KifEntryError> {
 		if self.file_name_raw.starts_with(b"__key__.dat") {
 			return Err(KifEntryError::KeyData());
 		}
 		if self.blowfish.is_none() {
 			panic!("Entry couldn't be decrypted");
 		}
-
 		let blowfish = self.blowfish.as_ref().unwrap();
+		let mmap = unsafe { Mmap::map(file)? };
 
-		let mut data: Vec<u8> = Vec::with_capacity(self.length as usize);
-		let mut buf = [0u8; 8];
-		let mut bytes_remaining = self.length as usize;
-
-		file.seek(SeekFrom::Start(self.offset as u64))?;
-
-		while bytes_remaining > 0 {
-			let bytes_to_read = bytes_remaining.min(8);
-			file.read_exact(&mut buf[..bytes_to_read])?;
-
-			if bytes_to_read == 8 {
-				let mut block = GenericArray::clone_from_slice(&buf);
-				blowfish.decrypt_block(&mut block);
-				data.extend_from_slice(block.as_slice());
-			} else {
-				data.extend_from_slice(&buf[..bytes_to_read]);
-			}
-
-			bytes_remaining -= bytes_to_read;
+		let start = self.offset as usize;
+		let end = start + self.length as usize;
+		if end > mmap.len() {
+			return Err(KifEntryError::CorruptHeader(self.index, self.get_file_name()))
 		}
+		let mut data = mmap[start..end].to_vec();
+
+		let full_blocks = data.len() / 8;
+
+		if full_blocks > 0 {
+			let blocks_ptr = data.as_mut_ptr() as *mut GenericArray<u8, U8>;
+			let blocks = unsafe { std::slice::from_raw_parts_mut(blocks_ptr, full_blocks) };
+			blowfish.decrypt_blocks(blocks);
+		}
+
 		Ok(data)
-	}
-
-	pub fn stream_extract<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, KifEntryError> {
-		if self.file_name_raw.starts_with(b"__key__.dat") {
-			return Err(KifEntryError::KeyData())
-		}
-
-		let pos = file.stream_position()?;
-		let bytes_remaining = self.length.saturating_sub(pos as u32 - self.offset) as usize;
-		let read_size = bytes_remaining.min(8);
-
-		if read_size == 0 {
-			return Ok(Vec::new())
-		}
-
-		let mut buf = vec![0u8; read_size];
-		file.read_exact(&mut buf)?;
-
-		if read_size == 8 {
-			if let Some(blowfish) = &self.blowfish {
-				let mut block = GenericArray::from_mut_slice(&mut buf);
-				blowfish.decrypt_block(&mut block);
-			}
-		}
-
-		Ok(buf)
 	}
 
 	pub fn get_file_name(&self) -> String {

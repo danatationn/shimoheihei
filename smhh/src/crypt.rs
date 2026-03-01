@@ -203,7 +203,7 @@ impl<'a> BitReader<'a> {
 }
 
 pub fn unpack_value(n: u8) -> u8 {
-	if (n & 1) != 0 {
+	if (n & 1) == 1 {
 		(n >> 1) ^ 0xFF
 	} else {
 		n >> 1

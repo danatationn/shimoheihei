@@ -1,4 +1,4 @@
-use shh_core::hgx::{Hgx, HgxTag};
+use smhh::hgx::{Hgx, HgxTag};
 use std::{fs::File, io::Write};
 use image;
 
@@ -9,17 +9,10 @@ pub fn convert(args: &ConvertArgs) {
 	let ext = args.dest_path.extension().unwrap().to_str().unwrap();
 
 	if let Ok(hgx) = Hgx::from(&file_path) {
-		let format = match ext.to_lowercase().as_str() {
-			"png" => image::ImageFormat::Png,
-			"bmp" => image::ImageFormat::Bmp,
-			"avif" => image::ImageFormat::Avif,
-			"jpeg" => image::ImageFormat::Jpeg,
-			"jpg" => image::ImageFormat::Jpeg,
-			"webp" => image::ImageFormat::WebP,
-			"tiff" => image::ImageFormat::Tiff,
-			"tga" => image::ImageFormat::Tga,
-			"gif" => image::ImageFormat::Gif,
-			_ => panic!("This format is not supported! (png, bmp, avif, jpg, webp, tiff, tga, gif)")
+		let format = if let Some(format) = image::ImageFormat::from_extension(ext) {
+			format
+		} else {
+			panic!("\".{ext}\" is not a supported image format! (check https://docs.rs/image/latest/image/codecs/index.html#supported-formats for supported formats)")
 		};
 
 		let mut hgx_file = File::open(file_path).unwrap();

@@ -407,6 +407,7 @@ impl ImgTag {
 		let sect3 = &unrle_buf[sect_length*2..sect_length*3];
 		let sect4 = &unrle_buf[sect_length*3..sect_length*4];
 
+		// lookup tables for bit reconstruction. or something idk
 		let mut table1 = [0u32; 256];
 		let mut table2 = [0u32; 256];
 		let mut table3 = [0u32; 256];
@@ -414,13 +415,13 @@ impl ImgTag {
 		for i in 0..256 {
 			let mut value = (i as u32) & 0xC0 as u32;
 			value <<= 6;
-			value |= (i as u32) & 0x30;
+			value |= (i as u32) & 0x30;  // 00110000
 			value <<= 6;
-			value |= (i as u32) & 0x0C;
+			value |= (i as u32) & 0x0C;  // 00001100
 			value <<= 6;
-			value |= (i as u32) & 0x03;
+			value |= (i as u32) & 0x03;  // 00000011
 
-			table4[i] = value;
+			table4[i] = value << 0;
 			table3[i] = value << 2;
 			table2[i] = value << 4;
 			table1[i] = value << 6;
@@ -444,6 +445,7 @@ impl ImgTag {
 				table3[sect3[i] as usize] |
 			 	table4[sect4[i] as usize];
 
+			// image is in bgra so we need to make sure it's converted to rgba
 			buf[out_pos + 2] = unpack_value((value >> 0) as u8);  // r
 			buf[out_pos + 1] = unpack_value((value >> 8) as u8);  // g
 			buf[out_pos + 0] = unpack_value((value >> 16) as u8);  // b
