@@ -6,6 +6,8 @@ use image::{self, Rgb, Rgba};
 use crate::{ReadExt, crypt::unpack_value};
 use crate::crypt::BitReader;
 
+/// Harvard Grapics 2/3
+
 pub struct Hgx {
 	pub signature: [u8; 4],
 	pub version: u8,
@@ -19,6 +21,8 @@ pub enum HgxError {
 
 	#[error("Invalid file signature!")]
 	InvalidSignature(),
+	#[error("HG2 is not supported")]
+	Hg2NotSupported,
 	#[error("Frame error: {0}")]
 	FrameError(#[from] HgxFrameError),
 	#[error("Tag error: {0}")]
@@ -37,6 +41,9 @@ impl Hgx {
 		if signature[3] != b'2' && signature[3] != b'3' {
 			return Err(HgxError::InvalidSignature())
 		}
+		if signature[3] == b'2' {
+			return Err(HgxError::Hg2NotSupported)
+		}
 
 		file.seek(SeekFrom::Start(4*2))?;
 
@@ -46,19 +53,13 @@ impl Hgx {
 
 		let mut pos = 4*3;
 		let mut frames = Vec::new();
-		// let mut i = 0;
 		loop {
-			// i += 1;
-			// println!("> frame #{i}");
 			let frame = HgxFrame::from(&mut file, pos)?;
 			pos += frame.next_pos as u64;
 			let next_pos = frame.next_pos;
 			frames.push(frame);
 			if next_pos == 0 {
-				// println!("> BREAK");
 				break
-			} else {
-				// println!("> {} isn't zero", frames.last().unwrap().next_pos);
 			}
 		}
 
@@ -115,7 +116,6 @@ impl HgxFrame {
 			file.read_exact(&mut name_bytes)?;
 			let next_offset = file.read_le::<u32>()?;
 			let length = file.read_le::<u32>()?;
-			// println!("\"{}\" next_offset={next_offset}; length={length}", String::from_utf8_lossy(&name_bytes));
 			let tag = HgxTag::from(file, name_bytes, length)?;
 			tags.push(tag);
 			if next_offset == 0 {

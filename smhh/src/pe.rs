@@ -15,6 +15,8 @@ pub struct Cs2Pe {
 	pub toc_seed: u32,
 }
 
+/// Module for reading keys from the main Cs2 PEs
+
 #[derive(Error, Debug)]
 pub enum Cs2PeError {
 	#[error("Io error: {0}")]

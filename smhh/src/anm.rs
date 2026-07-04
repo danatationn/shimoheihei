@@ -1,0 +1,201 @@
+use std::{fmt, fs::File, io::{Read, Seek, SeekFrom}, path::Path};
+
+use thiserror::Error;
+
+use crate::ReadExt;
+
+/// Animation Script
+
+pub struct Anm {
+	pub magic: [u8; 4],
+	pub timeline_count: u32,
+	pub timelines: Vec<AnmTimeline>,
+}
+
+#[derive(Error, Debug)]
+pub enum AnmError {
+	#[error("Io error: {0}")]
+	IoError(#[from] std::io::Error),
+	#[error("Timeline error: {0}")]
+	AnmTimelineError(#[from] AnmTimelineError),
+	#[error("Parameter error: {0}")]
+	AnmParameterError(#[from] AnmParameterError),
+	#[error("Invalid signature: {0:?}")]
+	InvalidSignature([u8; 4]),
+}
+
+impl Anm {
+	pub fn from<P: AsRef<Path>>(path: &P) -> Result<Self, AnmError> {
+		let mut file = File::open(path)?;
+
+		let mut magic = [0u8; 4];
+		file.read_exact(&mut magic)?;
+		if &magic != b"ANM\0" {
+			return Err(AnmError::InvalidSignature(magic))
+		}
+
+		file.seek(SeekFrom::Current(4))?;  // skipping unknown u32
+
+		let timeline_count: u32 = file.read_le::<u32>()?;
+
+		file.seek(SeekFrom::Current(20))?;  // skipping unknown 20 bytes
+
+		let mut timelines = Vec::with_capacity(timeline_count as usize);
+		for _ in 0..timeline_count {
+			let timeline = AnmTimeline::from(&mut file)?;
+			timelines.push(timeline);
+		}
+
+		Ok(Self{ magic, timeline_count, timelines })
+	}
+}
+
+impl fmt::Display for Anm {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		writeln!(f, "Animation file with {} timelines", self.timeline_count)?;
+		for i in 0..self.timeline_count {
+			let timeline = &self.timelines[i as usize];
+
+			writeln!(f, "{i}. {:?}: {:?}", timeline.command_type, timeline.parameters)?;
+		}
+		Ok(())
+	}
+}
+
+pub struct AnmTimeline {
+	pub command_type: AnmCommandTypes,
+	pub parameters: [AnmParameter; 3],  // technically there's 8 but only 3 get used
+}
+
+#[derive(Error, Debug)]
+pub enum AnmTimelineError {
+	#[error("Io error: {0}")]
+	IoError(#[from] std::io::Error),
+	#[error("Parameter error: {0}")]
+	AnmParameterError(#[from] AnmParameterError),
+	#[error("Unknown timeline command type: {0}")]
+	UnknownCommand(u32),
+}
+
+impl AnmTimeline {
+	pub fn from<F: Read + Seek>(file: &mut F) -> Result<Self, AnmTimelineError> {
+		let raw_command = file.read_le::<u32>()?;
+
+		let command_type = AnmCommandTypes::try_from(raw_command)?;
+
+		let p1 = AnmParameter::from(file)?;
+		let p2 = AnmParameter::from(file)?;
+		let p3 = AnmParameter::from(file)?;
+
+		file.seek(SeekFrom::Current(5 * 8))?;
+
+		Ok(Self { command_type, parameters: [p1, p2, p3] })
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnmCommandTypes {  // literally only show and jump get used
+	Show	= 0,	// [ID] [min] (max)
+	Set		= 1,	// [var] [min] (max)
+	Loop	= 2,	// [var] [label]
+	Jump	= 3,	// [label]
+	If		= 4,	// [var] [label]
+	IfE		= 5,	// [var] [value] [label]
+	IfN		= 6,	// [var] [value] [label]
+	IfG		= 7,	// [var] [value] [label]
+	IfS		= 8,	// [var] [value] [label]
+	IfGE	= 9,	// [var] [value] [label]
+	IfSE	= 10,	// [var] [value] [label]
+	Max		= 11,	// [var]
+	Blend	= 12,	// [value]
+	Disp	= 13,	// [value]
+	Pos		= 14,	// [x] [y]
+	Wait	= 15,	// [min] (max)
+	Add		= 16,	// [var] [value]
+	Sub		= 17,	// [var] [value]
+}
+
+impl TryFrom<u32> for AnmCommandTypes {
+    type Error = AnmTimelineError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Show),
+            1 => Ok(Self::Set),
+            2 => Ok(Self::Loop),
+            3 => Ok(Self::Jump),
+            4 => Ok(Self::If),
+            5 => Ok(Self::IfE),
+            6 => Ok(Self::IfN),
+            7 => Ok(Self::IfG),
+            8 => Ok(Self::IfS),
+            9 => Ok(Self::IfGE),
+            10 => Ok(Self::IfSE),
+            11 => Ok(Self::Max),
+            12 => Ok(Self::Blend),
+            13 => Ok(Self::Disp),
+            14 => Ok(Self::Pos),
+            15 => Ok(Self::Wait),
+            16 => Ok(Self::Add),
+            17 => Ok(Self::Sub),
+            other => Err(AnmTimelineError::UnknownCommand(other)),
+        }
+    }
+}
+
+
+pub struct AnmParameter {
+	pub parameter_type: AnmParameterType,
+	pub value: u32,
+}
+
+#[derive(Error, Debug)]
+pub enum AnmParameterError {
+	#[error("Io error: {0}")]
+	IoError(#[from] std::io::Error),
+	#[error("Unknown parameter type: {0}")]
+	UnknownParameterType(u32),
+}
+
+impl AnmParameter {
+	pub fn from<F: Read>(file: &mut F) -> Result<Self, AnmParameterError> {
+		let raw_type = file.read_le::<u32>()?;
+		let value = file.read_le::<u32>()?;
+
+		let parameter_type = AnmParameterType::try_from(raw_type)?;
+
+		Ok(Self { parameter_type, value })
+	}
+}
+
+impl fmt::Display for AnmParameter {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{:?}={}", self.parameter_type, self.value)
+	}
+}
+
+impl fmt::Debug for AnmParameter {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{:?}={}", self.parameter_type, self.value)
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnmParameterType {
+	Number		= 0,
+	Variable	= 1,
+	Label		= 2,
+}
+
+impl TryFrom<u32> for AnmParameterType {
+	type Error = AnmParameterError;
+
+	fn try_from(value: u32) -> Result<Self, Self::Error> {
+		match value {
+			0 		=> Ok(Self::Number),
+			1 		=> Ok(Self::Variable),
+			2 		=> Ok(Self::Label),
+			other 	=> Err(AnmParameterError::UnknownParameterType(other)),
+		}
+	}
+}

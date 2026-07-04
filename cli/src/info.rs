@@ -1,4 +1,6 @@
 use crate::InfoArgs;
+use smhh::anm::Anm;
+use smhh::fes::Fes;
 use smhh::hgx::Hgx;
 use smhh::kif::Kif;
 use smhh::pe::Cs2Pe;
@@ -46,5 +48,16 @@ pub fn display_info(args: &InfoArgs) -> () {
 		return
     }
 
-    println!("This format is not yet supported! (Supported formats: .int, .exe, .hg2, .hg3)")
+    if let Ok(anm) = Anm::from(&path) {
+	   	println!("{}", anm);
+		return
+    }
+
+    if let Ok(fes) = Fes::from_path(&path) {
+	   	println!("{:?}", fes);
+		return
+    }
+
+
+    println!("This format is not yet supported! (Supported formats: .int, .exe/.bin, .hg3, .anm, .fes)")
 }

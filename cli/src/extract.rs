@@ -1,12 +1,13 @@
-use std::{fs::{self, File}, io::Write, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
+use std::{ffi::OsStr, fs::{self, File}, io::Write, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
 
 use crate::ExtractArgs;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use smhh::{kif::Kif, pe::{Cs2Pe, find_cs2_pe}};
+use smhh::{cst::Cst, fes::Fes, kif::Kif, pe::{Cs2Pe, find_cs2_pe}};
+use cli::utils::determine_path;
 use anyhow::{Context, Result};
 
 pub fn extract(args: &ExtractArgs) -> Result<()> {
-	let file_path = args.kif_path.canonicalize()?;
+	let file_path = args.path.canonicalize()?;
 	let file_name = file_path.file_name()
 		.context("Invalid file name")?
 		.to_string_lossy();
@@ -65,6 +66,20 @@ pub fn extract(args: &ExtractArgs) -> Result<()> {
 		println!("Done!");
 
 		return Ok(());
+	}
+
+	if let Ok(fes) = Fes::from_path(&args.path) {
+		let fes_file_path = determine_path(args.path.clone(), args.dest_path.clone(), Some(OsStr::new("txt")));
+		File::create(&fes_file_path)?.write_all(&fes.script_text)?;
+		println!("Extracted to `{fes_file_path:?}`");
+		return Ok(())
+	}
+
+	if let Ok(cst) = Cst::from_path(&args.path) {
+		let cst_file_path = determine_path(args.path.clone(), args.dest_path.clone(), Some(OsStr::new("txt")));
+		File::create(&cst_file_path)?.write_all(&cst.script_data)?;
+		println!("Extracted to `{cst_file_path:?}`");
+		return Ok(())
 	}
 
 	println!("ERROR: This file format is not yet supported!");

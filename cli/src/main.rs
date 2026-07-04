@@ -30,7 +30,7 @@ struct InfoArgs {
 
 #[derive(Args)]
 struct ExtractArgs {
-    kif_path: PathBuf,
+    path: PathBuf,
     #[arg(long)]
     pe_path: Option<PathBuf>,
     #[arg(long)]
@@ -61,5 +61,8 @@ fn main() {
         Commands::Info(args) => info::display_info(args),
         Commands::Extract(args) => extract::extract(args).unwrap(),
         Commands::Convert(args) => convert::convert(args).unwrap(),
+        // TODO compress
+        // TODO compile
+        // TODO decompile
     }
 }

@@ -1,15 +1,8 @@
 use crate::ReadExt;
 use crate::crypt::{MersenneTwister, beaufort_cipher};
-use blowfish::BlowfishLE;
-use blowfish::cipher::consts::U8;
-use blowfish::cipher::generic_array::GenericArray;
-use blowfish::cipher::{BlockDecrypt, KeyInit};
+use blowfish::{BlowfishLE, cipher::{consts::U8, generic_array::GenericArray, BlockDecrypt, KeyInit}};
 use memmap2::{Mmap};
-use std::fmt;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
-use std::sync::Arc;
+use std::{fmt, fs::File, io::{Read, Seek, SeekFrom}, path::Path, sync::Arc};
 use thiserror::Error;
 
 pub struct Kif {
@@ -20,6 +13,8 @@ pub struct Kif {
 	pub blowfish: Option<Arc<BlowfishLE>>,
 	pub toc_seed: Option<u32>,
 }
+
+/// kclib Intergrated File
 
 #[derive(Error, Debug)]
 pub enum KifError {

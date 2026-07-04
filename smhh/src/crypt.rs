@@ -78,32 +78,6 @@ impl MersenneTwister {
 }
 
 
-const CHARSET: &[u8; 52] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-pub fn beaufort_cipher_good(text: [u8; 64], mut key: usize) -> [u8; 64] {
-	let mut result = text;
-
-	for i in 0..64 {
-		let byte = text[i];
-
-		if !byte.is_ascii_alphabetic() {
-			key += 1;
-			continue
-		}
-
-		for j in 0..52 {
-			let idx = (52 + j + 52 - (key % 52)) % 52;
-			if CHARSET[idx] == byte {
-				result[i] = CHARSET[j];
-				break
-			}
-		}
-
-		key += 1;
-	}
-	result
-}
-
 pub fn beaufort_cipher(mut text: [u8; 64], mut key: usize) -> [u8; 64] {
 	//! clone of the c# code
 	//! todo try to make it look prettier if possible (preferably like the function above this)

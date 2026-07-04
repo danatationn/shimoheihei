@@ -1,9 +1,12 @@
 use std::io::Read;
 
+pub mod anm;
+pub mod cst;
 pub mod crypt;
-pub mod pe;
-pub mod kif;
+pub mod fes;
 pub mod hgx;
+pub mod kif;
+pub mod pe;
 
 pub trait ReadExt: Read {
 	fn read_le<T: LeReadable>(&mut self) -> Result<T, std::io::Error>;
