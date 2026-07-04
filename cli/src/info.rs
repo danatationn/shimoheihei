@@ -6,8 +6,8 @@ use smhh::pe::Cs2Pe;
 pub fn display_info(args: &InfoArgs) -> () {
     let path = args.file_path.canonicalize().expect("The path doesn't exist!");
 
-    if let Ok(_) = Kif::from(&path) {
-	    let kif = match Kif::from(&path) {
+    if let Ok(_) = Kif::from_path(&path) {
+	    let kif = match Kif::from_path(&path) {
 			 Ok(kif) if kif.blowfish_key.is_some() => {
 		        if args.toc_seed.is_some() {
 		            Kif::from_path_with_seed(&path, args.toc_seed.unwrap()).unwrap()

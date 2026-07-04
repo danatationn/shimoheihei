@@ -1,5 +1,5 @@
 mod extract;
-mod find_pe;
+mod utils;
 mod info;
 mod convert;
 
@@ -16,7 +16,6 @@ struct Cli {
 enum Commands {
     Info(InfoArgs),
     Extract(ExtractArgs),
-    FindPe(FindPeArgs),
     Convert(ConvertArgs)
 }
 
@@ -61,7 +60,6 @@ fn main() {
     match &cli.command {
         Commands::Info(args) => info::display_info(args),
         Commands::Extract(args) => extract::extract(args).unwrap(),
-        Commands::FindPe(args) => find_pe::find_pe(args),
-        Commands::Convert(args) => convert::convert(args),
+        Commands::Convert(args) => convert::convert(args).unwrap(),
     }
 }

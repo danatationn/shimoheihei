@@ -13,11 +13,12 @@ use std::sync::Arc;
 use thiserror::Error;
 
 pub struct Kif {
-pub entry_count: u32,
-pub entries: Vec<KifEntry>,
-pub blowfish_key: Option<[u8; 4]>,
-pub blowfish: Option<Arc<BlowfishLE>>,
-pub toc_seed: Option<u32>,
+	pub file: Arc<File>,
+	pub entry_count: u32,
+	pub entries: Vec<KifEntry>,
+	pub blowfish_key: Option<[u8; 4]>,
+	pub blowfish: Option<Arc<BlowfishLE>>,
+	pub toc_seed: Option<u32>,
 }
 
 #[derive(Error, Debug)]
@@ -31,7 +32,7 @@ pub enum KifError {
 }
 
 impl Kif {
-	pub fn from<P: AsRef<Path>>(path: &P) -> Result<Self, KifError> {
+	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self, KifError> {
 		let mut file = File::open(path)?;
 
 		let mut signature = [0u8; 4];
@@ -63,18 +64,20 @@ impl Kif {
 			entries.push(entry);
 		}
 
-		Ok(Kif { entry_count, entries, blowfish_key, blowfish, toc_seed: None })
+		let file_arc = Arc::new(file);
+		Ok(Kif { file: file_arc, entry_count, entries, blowfish_key, blowfish, toc_seed: None })
 	}
 
 	pub fn from_path_with_seed<P: AsRef<Path>>(path: &P, toc_seed: u32) -> Result<Self, KifError> {
-		let mut kif = Self::from(path)?;
-		kif.toc_seed = Some(toc_seed);
+		let mut kif = Self::from_path(path)?;
 		kif.deobfuscate_entries(toc_seed)?;
 
 		Ok(kif)
 	}
 
 	pub fn deobfuscate_entries(&mut self, toc_seed: u32) -> Result<(), KifError> {
+		self.toc_seed = Some(toc_seed);
+
 		if let Some(blowfish) = &self.blowfish {
 			for entry in &mut self.entries {
 				entry.blowfish = Some(Arc::clone(blowfish));
@@ -82,6 +85,11 @@ impl Kif {
 			}
 		}
 		Ok(())
+	}
+
+	pub fn extract_entry(&self, index: usize) -> Result<Vec<u8>, KifEntryError> {
+		let entry = &self.entries[index];
+		entry.extract(&self.file)
 	}
 }
 

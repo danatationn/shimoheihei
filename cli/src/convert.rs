@@ -1,10 +1,11 @@
 use smhh::hgx::{Hgx, HgxTag};
 use std::{fs::File, io::Write};
 use image;
+use anyhow::Result;
 
 use crate::ConvertArgs;
 
-pub fn convert(args: &ConvertArgs) {
+pub fn convert(args: &ConvertArgs) -> Result<()> {
 	let file_path = args.file_path.canonicalize().expect("The path doesn't exist!");
 	let ext = args.dest_path.extension().unwrap().to_str().unwrap();
 
@@ -12,7 +13,9 @@ pub fn convert(args: &ConvertArgs) {
 		let format = if let Some(format) = image::ImageFormat::from_extension(ext) {
 			format
 		} else {
-			panic!("\".{ext}\" is not a supported image format! (check https://docs.rs/image/latest/image/codecs/index.html#supported-formats for supported formats)")
+			eprintln!("Error: `.{ext}` is not a supported image format!");
+			eprintln!("Check https://docs.rs/image/latest/image/codecs/index.html#supported-formats for supported formats");
+			return Ok(());
 		};
 
 		let mut hgx_file = File::open(file_path).unwrap();
@@ -39,4 +42,5 @@ pub fn convert(args: &ConvertArgs) {
 			}
 		}
 	}
+	Ok(())
 }

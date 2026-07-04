@@ -401,26 +401,29 @@ impl ImgTag {
 	}
 
 	fn delta_filter(&self, unrle_buf: &[u8], width: u32, height: u32, bit_depth: u32) -> Result<Vec<u8>, HgxTagError> {
+		// split the image in 4 equal sections
 		let sect_length = unrle_buf.len() / 4;
 		let sect1 = &unrle_buf[0..sect_length];
 		let sect2 = &unrle_buf[sect_length..sect_length*2];
 		let sect3 = &unrle_buf[sect_length*2..sect_length*3];
 		let sect4 = &unrle_buf[sect_length*3..sect_length*4];
 
-		// lookup tables for bit reconstruction. or something idk
+		// bit-reconstruction lookup tables (format obfuscation)
 		let mut table1 = [0u32; 256];
 		let mut table2 = [0u32; 256];
 		let mut table3 = [0u32; 256];
 		let mut table4 = [0u32; 256];
 		for i in 0..256 {
-			let mut value = (i as u32) & 0xC0 as u32;
+			// by masking and shifting the bits we are scattering the 4 pairs of bits into one byte
+			let mut value = (i as u32) & 0b11000000 as u32;
 			value <<= 6;
-			value |= (i as u32) & 0x30;  // 00110000
+			value |= (i as u32) & 0b00110000;
 			value <<= 6;
-			value |= (i as u32) & 0x0C;  // 00001100
+			value |= (i as u32) & 0b00001100;
 			value <<= 6;
-			value |= (i as u32) & 0x03;  // 00000011
+			value |= (i as u32) & 0b00000011;
 
+			// the shifting here makes sure that data doesn't get reused from the wrong sect
 			table4[i] = value << 0;
 			table3[i] = value << 2;
 			table2[i] = value << 4;
@@ -437,42 +440,56 @@ impl ImgTag {
 
 		let mut out_pos = 0;
 		for i in 0..max_pixels {
-			if out_pos+4 as usize > buf.len() {
+			if out_pos+depth_bytes as usize > buf.len() {
 				return Err(HgxTagError::InvalidDelta("Buffer overflow".to_string()))
 			}
+			// restores the original packed color values
 			let value = table1[sect1[i] as usize] |
 				table2[sect2[i] as usize] |
 				table3[sect3[i] as usize] |
 			 	table4[sect4[i] as usize];
 
-			// image is in bgra so we need to make sure it's converted to rgba
-			buf[out_pos + 2] = unpack_value((value >> 0) as u8);  // r
-			buf[out_pos + 1] = unpack_value((value >> 8) as u8);  // g
-			buf[out_pos + 0] = unpack_value((value >> 16) as u8);  // b
-			buf[out_pos + 3] = unpack_value((value >> 24) as u8);  // a
+			// in case image is 24bit
+			let b0 = unpack_value((value >> 0) as u8);
+			let b1 = unpack_value((value >> 8) as u8);
+			let b2 = unpack_value((value >> 16) as u8);
+			let b3 = unpack_value((value >> 24) as u8);
+
+			if out_pos < buf.len() { buf[out_pos] = b0; }
+			if out_pos + 1 < buf.len() { buf[out_pos + 1] = b1; }
+			if out_pos + 2 < buf.len() { buf[out_pos + 2] = b2; }
+			if out_pos + 3 < buf.len() { buf[out_pos + 3] = b3; }
 
 			out_pos += 4;
 		}
 
+		// delta decompression
+		// horizontal decoding
 		for x in depth_bytes..stride {
 			let x = x as usize;
 			if x >= buf.len() {
-				return Err(HgxTagError::InvalidDelta(2.to_string()));
+				return Err(HgxTagError::InvalidDelta("Buffer overflow caused by image row".to_string()));
 			}
 			buf[x] = buf[x].wrapping_add(buf[x - depth_bytes as usize]);
 		}
 
+		// vertical decoding
 		for y in 1..height {
 			let line_start = y * stride;
 			let prev_start = (y - 1) * stride;
 
 			if (line_start + stride) as usize > buf.len() {
-				return Err(HgxTagError::InvalidDelta(3.to_string()))
+				return Err(HgxTagError::InvalidDelta("Buffer overflow caused by image rows".to_string()))
 			}
 
 			for x in 0..stride {
 				buf[(line_start + x) as usize] = buf[(line_start + x) as usize].wrapping_add(buf[(prev_start + x) as usize]);
 			}
+		}
+
+		// bgra to rgba
+		for i in (0..buf.len()).step_by(depth_bytes as usize) {
+			buf.swap(i, i + 2);
 		}
 
 		Ok(buf)
