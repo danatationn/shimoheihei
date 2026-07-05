@@ -7,6 +7,10 @@ use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
+#[command(
+	name = env!("CARGO_CRATE_NAME"),
+	bin_name = env!("CARGO_CRATE_NAME"),
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

@@ -63,7 +63,7 @@ impl fmt::Display for Anm {
 }
 
 pub struct AnmTimeline {
-	pub command_type: AnmCommandTypes,
+	pub command_type: AnmCommandType,
 	pub parameters: [AnmParameter; 3],  // technically there's 8 but only 3 get used
 }
 
@@ -81,7 +81,7 @@ impl AnmTimeline {
 	pub fn from<F: Read + Seek>(file: &mut F) -> Result<Self, AnmTimelineError> {
 		let raw_command = file.read_le::<u32>()?;
 
-		let command_type = AnmCommandTypes::try_from(raw_command)?;
+		let command_type = AnmCommandType::try_from(raw_command)?;
 
 		let p1 = AnmParameter::from(file)?;
 		let p2 = AnmParameter::from(file)?;
@@ -94,7 +94,7 @@ impl AnmTimeline {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AnmCommandTypes {  // literally only show and jump get used
+pub enum AnmCommandType {  // literally only show and jump get used
 	Show	= 0,	// [ID] [min] (max)
 	Set		= 1,	// [var] [min] (max)
 	Loop	= 2,	// [var] [label]
@@ -115,7 +115,7 @@ pub enum AnmCommandTypes {  // literally only show and jump get used
 	Sub		= 17,	// [var] [value]
 }
 
-impl TryFrom<u32> for AnmCommandTypes {
+impl TryFrom<u32> for AnmCommandType {
     type Error = AnmTimelineError;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {

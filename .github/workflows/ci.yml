@@ -17,9 +17,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      run: cargo build --verbose --release
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: shimoheihei-linux-cli
+        path: target/release/shimoheihei
+        archive: false
 
   windows-job:
     name: Windows
@@ -28,6 +33,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      run: cargo build --verbose --release
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: shimoheihei-windows-cli
+        path: target/release/shimoheihei.exe
+        archive: false

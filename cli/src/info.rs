@@ -1,5 +1,6 @@
 use crate::InfoArgs;
 use smhh::anm::Anm;
+use smhh::cst::Cst;
 use smhh::fes::Fes;
 use smhh::hgx::Hgx;
 use smhh::kif::Kif;
@@ -31,13 +32,11 @@ pub fn display_info(args: &InfoArgs) -> () {
 		}
 		return
     }
-
-    if let Ok(cs2_pe) = Cs2Pe::from_path(&path) {
+    else if let Ok(cs2_pe) = Cs2Pe::from_path(&path) {
 	   	println!("{cs2_pe}");
     	return
     }
-
-    if let Ok(hgx) = Hgx::from(&path) {
+    else if let Ok(hgx) = Hgx::from(&path) {
 	   	println!("{hgx}");
 		for frame in hgx.frames {
 			println!("\n{frame}");
@@ -47,17 +46,18 @@ pub fn display_info(args: &InfoArgs) -> () {
 		}
 		return
     }
-
-    if let Ok(anm) = Anm::from(&path) {
+    else if let Ok(anm) = Anm::from(&path) {
 	   	println!("{}", anm);
 		return
     }
-
-    if let Ok(fes) = Fes::from_path(&path) {
+    else if let Ok(fes) = Fes::from_path(&path) {
 	   	println!("{:?}", fes);
 		return
     }
-
-
-    println!("This format is not yet supported! (Supported formats: .int, .exe/.bin, .hg3, .anm, .fes)")
+    else if let Ok(cst) = Cst::from_path(&path) {
+    	println!("{:?}", cst);
+    }
+    else {
+    	println!("This format is not yet supported! (Supported formats: .int, .exe/.bin, .hg3, .anm, .fes)")
+    }
 }

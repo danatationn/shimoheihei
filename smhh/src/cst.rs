@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read, path::Path};
+use std::{fmt, fs::File, io::{BufRead, Cursor, Read, Seek, SeekFrom}, path::Path};
 
 use thiserror::Error;
 use flate2::read::ZlibDecoder;
@@ -10,8 +10,14 @@ use crate::ReadExt;
 pub struct Cst {
 	pub compressed_size: u32,
 	pub decompressed_size: u32,
-	pub raw_script_data: Vec<u8>,  // capacity(compressed_size)
+	pub raw_script_data: Vec<u8>,
 	pub script_data: Vec<u8>,  // capacity(decompressed_size)
+
+	pub script_len: u32,
+	pub input_count: u32,
+	pub offset_table_offset: u32,
+	pub string_table_offset: u32,
+	pub entry_count: u32,
 }
 
 #[derive(Error, Debug)]
@@ -22,6 +28,8 @@ pub enum CstError {
 	WrongSignature(String),
 	#[error("Unexpected decompressed size: {0}")]
 	WrongSize(usize),
+	#[error("Unknown line type: {0}")]
+	UnknownLineType(u8),
 }
 
 impl Cst {
@@ -61,6 +69,120 @@ impl Cst {
 			return Err(CstError::WrongSize(script_data.len()))
 		}
 
-		Ok(Self { compressed_size, decompressed_size, raw_script_data, script_data })
+		let mut cursor = Cursor::new(&script_data);
+		// script_len excludes the script header (4 u32s)
+		let script_len = cursor.read_le::<u32>()?;
+		if script_len + 4*4 != decompressed_size {
+			return Err(CstError::WrongSize(script_len as usize + 4*4))
+		}
+
+		let input_count = cursor.read_le::<u32>()?;
+		let offset_table_offset = cursor.read_le::<u32>()?;
+		let string_table_offset = cursor.read_le::<u32>()?;
+		let entry_count = (string_table_offset - offset_table_offset) / 4;
+
+		Ok(Self {
+			compressed_size, decompressed_size, raw_script_data, script_data,
+			script_len, input_count, offset_table_offset, string_table_offset, entry_count
+		})
+	}
+
+	pub fn decomp_script(&self) -> Result<Vec<u8>, CstError> {
+		let mut decompiled_script: Vec::<u8> = Vec::new();
+
+		let mut cursor = Cursor::new(&self.script_data);
+		cursor.seek(SeekFrom::Start(self.string_table_offset as u64 + 4*4))?;
+
+		for _ in 0..self.entry_count {
+			cursor.seek(SeekFrom::Current(1))?; // reserved byte
+			let raw_line_type = cursor.read_u8()?;
+			let line_type = CstLineType::try_from(raw_line_type)?;
+
+			let mut content: Vec::<u8> = Vec::new();
+			cursor.read_until(0x00, &mut content)?;
+
+
+			if content.starts_with(b"scene ") {
+				content.splice(0..6, b"#".iter().cloned());
+			} else {
+				content.insert(0, b'\t');
+			}
+
+			if content.trim_ascii().first().map_or(false, |b| b.is_ascii_alphanumeric() && line_type == CstLineType::Message) {
+				content.insert(0, b'\\');
+			}
+			if content.last() == Some(&b'\0') {
+				content.pop();
+			}
+
+			decompiled_script.extend(content);
+			if line_type != CstLineType::Name {
+				// i think it's safe to assume the next line will always be a message ?
+				decompiled_script.push(b'\n');
+			}
+		}
+
+		Ok(decompiled_script)
+	}
+
+	/// to be implemented
+	pub fn comp_script() -> () {
+		()
+	}
+}
+
+impl fmt::Debug for Cst {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		f.debug_struct("Cst")
+			.field("compressed_size", &self.compressed_size)
+			.field("decompressed_size", &self.decompressed_size)
+			.finish()
+	}
+}
+
+pub struct CstLine {
+	pub line_type: CstLineType,
+	pub content: String,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum CstLineType {
+	Input		= 0x02,
+	Page		= 0x03,
+	Message		= 0x20,
+	Name		= 0x21,
+	Command		= 0x30,
+	ScriptName	= 0xF0,  // debug
+	LineNumber	= 0xF1,  // debug
+}
+
+impl CstLineType {
+	pub fn as_str(&self) -> &'static str {
+		match self {
+			Self::Input => "Input",
+			Self::Page => "Page",
+			Self::Message => "Message",
+			Self::Name => "Name",
+			Self::Command => "Command",
+			Self::ScriptName => "ScriptName",
+			Self::LineNumber => "LineNumber",
+		}
+	}
+}
+
+impl TryFrom<u8> for CstLineType {
+	type Error = CstError;
+
+	fn try_from(value: u8) -> Result<CstLineType, Self::Error> {
+		match value {
+			0x02 => Ok(Self::Input),
+			0x03 => Ok(Self::Page),
+			0x20 => Ok(Self::Message),
+			0x21 => Ok(Self::Name),
+			0x30 => Ok(Self::Command),
+			0xF0 => Ok(Self::ScriptName),
+			0xF1 => Ok(Self::LineNumber),
+			other => Err(CstError::UnknownLineType(other))
+		}
 	}
 }

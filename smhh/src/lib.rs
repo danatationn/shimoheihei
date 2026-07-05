@@ -10,6 +10,12 @@ pub mod pe;
 
 pub trait ReadExt: Read {
 	fn read_le<T: LeReadable>(&mut self) -> Result<T, std::io::Error>;
+
+	fn read_u8(&mut self) -> std::io::Result<u8> {
+		let mut buf = [0u8; 1];
+		self.read_exact(&mut buf)?;
+		Ok(buf[0])
+	}
 }
 
 pub trait LeReadable {

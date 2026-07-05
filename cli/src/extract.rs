@@ -67,21 +67,20 @@ pub fn extract(args: &ExtractArgs) -> Result<()> {
 
 		return Ok(());
 	}
-
-	if let Ok(fes) = Fes::from_path(&args.path) {
+	else if let Ok(fes) = Fes::from_path(&args.path) {
 		let fes_file_path = determine_path(args.path.clone(), args.dest_path.clone(), Some(OsStr::new("txt")));
 		File::create(&fes_file_path)?.write_all(&fes.script_text)?;
 		println!("Extracted to `{fes_file_path:?}`");
 		return Ok(())
 	}
-
-	if let Ok(cst) = Cst::from_path(&args.path) {
-		let cst_file_path = determine_path(args.path.clone(), args.dest_path.clone(), Some(OsStr::new("txt")));
-		File::create(&cst_file_path)?.write_all(&cst.script_data)?;
+	else if let Ok(cst) = Cst::from_path(&args.path) {
+		let cst_file_path = determine_path(args.path.clone(), args.dest_path.clone(), Some(OsStr::new("cst.txt")));
+		File::create(&cst_file_path)?.write_all(&cst.decomp_script()?)?;
 		println!("Extracted to `{cst_file_path:?}`");
 		return Ok(())
 	}
-
-	println!("ERROR: This file format is not yet supported!");
-	Ok(())
+	else {
+		println!("ERROR: This file format is not yet supported!");
+		Ok(())
+	}
 }

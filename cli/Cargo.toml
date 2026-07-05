@@ -13,3 +13,7 @@ bytesize = "2.3.1"
 humantime = "2.3.0"
 indicatif = { version = "0.18.4", features = ["rayon"] }
 console = "0.16.2"
+
+[[bin]]
+name = "shimoheihei"
+path = "src/main.rs"
