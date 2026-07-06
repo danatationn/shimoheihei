@@ -27,22 +27,22 @@ impl Fes {
 	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self, FesError> {
 		let mut file = File::open(path)?;
 
-		Self::from_file(&mut file)
+		Self::from_reader(&mut file)
 	}
 
-	pub fn from_file<F: Read + Seek>(file: &mut F) -> Result<Self, FesError> {
+	pub fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<Self, FesError> {
 		let mut magic = [0u8; 4];
-		file.read_exact(&mut magic)?;
+		reader.read_exact(&mut magic)?;
 		if magic != *b"FES\0" {
 			return Err(FesError::InvalidSignature(magic));
 		}
 
-		let compressed_size = file.read_le::<u32>()?;
-		let decompressed_size = file.read_le::<u32>()?;
-		file.seek(SeekFrom::Current(4))?;  // reserved
+		let compressed_size = reader.read_le::<u32>()?;
+		let decompressed_size = reader.read_le::<u32>()?;
+		reader.seek(SeekFrom::Current(4))?;  // reserved
 
 		let mut raw_script_text = vec![0u8; compressed_size as usize];
-		file.read_exact(&mut raw_script_text)?;
+		reader.read_exact(&mut raw_script_text)?;
 
 		let mut decoder = ZlibDecoder::new(&raw_script_text[..]);
 		let mut script_text = Vec::new();

@@ -9,7 +9,7 @@ pub fn convert(args: &ConvertArgs) -> Result<()> {
 	let file_path = args.file_path.canonicalize().expect("The path doesn't exist!");
 	let ext = args.dest_path.extension().unwrap().to_str().unwrap();
 
-	if let Ok(hgx) = Hgx::from(&file_path) {
+	if let Ok(hgx) = Hgx::from_path(&file_path) {
 		let format = if let Some(format) = image::ImageFormat::from_extension(ext) {
 			format
 		} else {

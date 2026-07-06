@@ -9,7 +9,6 @@ use crate::crypt::BitReader;
 /// Harvard Grapics 2/3
 
 pub struct Hgx {
-	pub signature: [u8; 4],
 	pub version: u8,
 	pub frames: Vec<HgxFrame>
 }
@@ -30,31 +29,35 @@ pub enum HgxError {
 }
 
 impl Hgx {
-	pub fn from<P: AsRef<Path>>(path: &P) -> Result<Self, HgxError> {
+	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self, HgxError> {
 		let mut file = File::open(path)?;
 
-		let mut signature = [0u8; 4];
-		file.read_exact(&mut signature)?;
-		if !signature.starts_with(b"HG-") {
+		Self::from_reader(&mut file)
+	}
+
+	pub fn from_reader<R: Read+ Seek>(reader: &mut R) -> Result<Self, HgxError> {
+		let mut magic = [0u8; 4];
+		reader.read_exact(&mut magic)?;
+		if !magic.starts_with(b"HG-") {
 			return Err(HgxError::InvalidSignature())
 		}
-		if signature[3] != b'2' && signature[3] != b'3' {
+		if magic[3] != b'2' && magic[3] != b'3' {
 			return Err(HgxError::InvalidSignature())
 		}
-		if signature[3] == b'2' {
+		if magic[3] == b'2' {
 			return Err(HgxError::Hg2NotSupported)
 		}
 
-		file.seek(SeekFrom::Start(4*2))?;
+		reader.seek(SeekFrom::Start(4*2))?;
 
 		let mut version_pair = [0u8; 2];
-		file.read_exact(&mut version_pair)?;
+		reader.read_exact(&mut version_pair)?;
 		let version = version_pair[0] * 10 + version_pair[1];
 
 		let mut pos = 4*3;
 		let mut frames = Vec::new();
 		loop {
-			let frame = HgxFrame::from(&mut file, pos)?;
+			let frame = HgxFrame::from(reader, pos)?;
 			pos += frame.next_pos as u64;
 			let next_pos = frame.next_pos;
 			frames.push(frame);
@@ -63,15 +66,14 @@ impl Hgx {
 			}
 		}
 
-		Ok(Hgx { signature, version, frames })
+		Ok(Hgx { version, frames })
 	}
 }
 
 impl fmt::Display for Hgx {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(
-			f, "{}, ver. {}",
-			String::from_utf8_lossy(&self.signature),
+			f, "HGX, ver. {}",
 			&self.version,
 		)?;
 
@@ -105,18 +107,18 @@ pub enum HgxFrameError {
 }
 
 impl HgxFrame {
-	pub fn from<F: Read + Seek>(file: &mut F, pos: u64) -> Result<Self, HgxFrameError> {
-		file.seek(SeekFrom::Start(pos))?;
-		let next_pos = file.read_le::<u32>()?;
-		let id = file.read_le::<u32>()?;
+	pub fn from<R: Read + Seek>(reader: &mut R, pos: u64) -> Result<Self, HgxFrameError> {
+		reader.seek(SeekFrom::Start(pos))?;
+		let next_pos = reader.read_le::<u32>()?;
+		let id = reader.read_le::<u32>()?;
 		let mut tags: Vec<HgxTag> = Vec::new();
 
 		loop {
 			let mut name_bytes = [0u8; 8];
-			file.read_exact(&mut name_bytes)?;
-			let next_offset = file.read_le::<u32>()?;
-			let length = file.read_le::<u32>()?;
-			let tag = HgxTag::from(file, name_bytes, length)?;
+			reader.read_exact(&mut name_bytes)?;
+			let next_offset = reader.read_le::<u32>()?;
+			let length = reader.read_le::<u32>()?;
+			let tag = HgxTag::from(reader, name_bytes, length)?;
 			tags.push(tag);
 			if next_offset == 0 {
 				match tags.last() {
@@ -185,7 +187,7 @@ pub enum HgxTag {
 }
 
 impl HgxTag {
-	pub fn from<F: Read + Seek>(file: &mut F, name_bytes: [u8; 8], length: u32) -> Result<Self, HgxTagError> {
+	pub fn from<R: Read + Seek>(reader: &mut R, name_bytes: [u8; 8], length: u32) -> Result<Self, HgxTagError> {
 		let name: String = name_bytes.iter()
 		    .take_while(|&&b| b != 0)
 		    .map(|&b| b as char)
@@ -193,21 +195,21 @@ impl HgxTag {
 
 		// TODO make this cleaner
 		if name.starts_with("img") && !name.starts_with("img_") && !name.starts_with("imgmode") {
-			return Ok(Self::Img(ImgTag::parse(file, length)?))
+			return Ok(Self::Img(ImgTag::parse(reader, length)?))
 		}
 		if name.starts_with("ats") {
-			return Ok(Self::Ats(AtsTag::parse(file)?))
+			return Ok(Self::Ats(AtsTag::parse(reader)?))
 		}
 
 		match name.as_str() {
-			"stdinfo" => Ok(Self::StdInfo(StdInfoTag::parse(file)?)),
-			"img_jpg" => Ok(Self::ImgJpg(ImgJpgTag::parse(file, length)?)),
-			"img_al"=> Ok(Self::ImgAl(ImgAlTag::parse(file)?)),
-			"img_jpa" => Ok(Self::ImgJpa()),
-			"img_wbp" => Ok(Self::ImgWbp(ImgWbpTag::parse(file, length)?)),
-			"cptype"=> Ok(Self::CpType(CpTypeTag::parse(file)?)),
-			"imgmode" => Ok(Self::ImgMode(ImgModeTag::parse(file)?)),
-			_ => return Err(HgxTagError::UnknownType(String::from_utf8_lossy(&name_bytes).to_string()))
+			"stdinfo"	=> Ok(Self::StdInfo(StdInfoTag::parse(reader)?)),
+			"img_jpg"	=> Ok(Self::ImgJpg(ImgJpgTag::parse(reader, length)?)),
+			"img_al"	=> Ok(Self::ImgAl(ImgAlTag::parse(reader)?)),
+			"img_jpa"	=> Ok(Self::ImgJpa()),
+			"img_wbp"	=> Ok(Self::ImgWbp(ImgWbpTag::parse(reader, length)?)),
+			"cptype"	=> Ok(Self::CpType(CpTypeTag::parse(reader)?)),
+			"imgmode"	=> Ok(Self::ImgMode(ImgModeTag::parse(reader)?)),
+			_ 			=> return Err(HgxTagError::UnknownType(String::from_utf8_lossy(&name_bytes).to_string()))
 		}
 	}
 }
@@ -279,18 +281,18 @@ pub struct StdInfoTag {
 }
 
 impl StdInfoTag {
-	fn parse<F: Read>(file: &mut F) -> Result<Self, HgxTagError> {
+	fn parse<R: Read>(reader: &mut R) -> Result<Self, HgxTagError> {
 		Ok(Self {
-			width: file.read_le::<u32>()?,
-			height: file.read_le::<u32>()?,
-			bit_depth: file.read_le::<u32>()?,
-			offset_x: file.read_le::<i32>()?,
-			offset_y: file.read_le::<i32>()?,
-			total_width: file.read_le::<u32>()?,
-			total_height: file.read_le::<u32>()?,
-			is_transparent : file.read_le::<u32>()? != 0,
-			base_x: file.read_le::<i32>()?,
-			base_y: file.read_le::<i32>()?
+			width: reader.read_le::<u32>()?,
+			height: reader.read_le::<u32>()?,
+			bit_depth: reader.read_le::<u32>()?,
+			offset_x: reader.read_le::<i32>()?,
+			offset_y: reader.read_le::<i32>()?,
+			total_width: reader.read_le::<u32>()?,
+			total_height: reader.read_le::<u32>()?,
+			is_transparent : reader.read_le::<u32>()? != 0,
+			base_x: reader.read_le::<i32>()?,
+			base_y: reader.read_le::<i32>()?
 		})
 	}
 }
@@ -306,25 +308,25 @@ pub struct ImgTag {
 }
 
 impl ImgTag {
-	fn parse<F: Read + Seek>(file: &mut F, length: u32) -> Result<Self, HgxTagError> {
-		let pos = file.stream_position()?;
-		let slice_start = file.read_le::<u32>()?;
-		let slice_length = file.read_le::<u32>()?;
-		let compressed_data_length = file.read_le::<u32>()?;
-		let decompressed_data_length = file.read_le::<u32>()?;
-		let compressed_cmd_length = file.read_le::<u32>()?;
-		let decompressed_cmd_length = file.read_le::<u32>()?;
-		file.seek(SeekFrom::Start(pos + length as u64))?;
+	fn parse<R: Read + Seek>(reader: &mut R, length: u32) -> Result<Self, HgxTagError> {
+		let pos = reader.stream_position()?;
+		let slice_start = reader.read_le::<u32>()?;
+		let slice_length = reader.read_le::<u32>()?;
+		let compressed_data_length = reader.read_le::<u32>()?;
+		let decompressed_data_length = reader.read_le::<u32>()?;
+		let compressed_cmd_length = reader.read_le::<u32>()?;
+		let decompressed_cmd_length = reader.read_le::<u32>()?;
+		reader.seek(SeekFrom::Start(pos + length as u64))?;
 
 		Ok(Self { slice_start, slice_length, compressed_data_length, decompressed_data_length, compressed_cmd_length, decompressed_cmd_length, data_pos: pos + 4*6 })
 	}
 
-	pub fn read_raw<F: Read + Seek>(&self, file: &mut F, std_info_tag: &StdInfoTag) -> Result<Vec<u8>, HgxTagError> {
-		file.seek(SeekFrom::Start(self.data_pos))?;
+	pub fn read_raw<R: Read + Seek>(&self, reader: &mut R, std_info_tag: &StdInfoTag) -> Result<Vec<u8>, HgxTagError> {
+		reader.seek(SeekFrom::Start(self.data_pos))?;
 		let mut inflated_data_buf = vec![0u8; self.compressed_data_length as usize];
-		file.read_exact(&mut inflated_data_buf)?;
+		reader.read_exact(&mut inflated_data_buf)?;
 		let mut inflated_cmd_buf = vec![0u8; self.compressed_cmd_length as usize];
-		file.read_exact(&mut inflated_cmd_buf)?;
+		reader.read_exact(&mut inflated_cmd_buf)?;
 
 		let mut data_buf = vec![0u8; self.decompressed_data_length as usize];
 		let mut cmd_buf = vec![0u8; self.decompressed_cmd_length as usize];
@@ -339,8 +341,8 @@ impl ImgTag {
 		Ok(delta_filter_buf)
 	}
 
-	pub fn convert<F: Read + Seek>(&self, file: &mut F, std_info_tag: &StdInfoTag, format: image::ImageFormat) -> Result<Vec<u8>, HgxTagError> {
-		let raw_data = self.read_raw(file, std_info_tag).unwrap();
+	pub fn convert<R: Read + Seek>(&self, reader: &mut R, std_info_tag: &StdInfoTag, format: image::ImageFormat) -> Result<Vec<u8>, HgxTagError> {
+		let raw_data = self.read_raw(reader, std_info_tag).unwrap();
 		let mut data = Cursor::new(Vec::new());
 
 		if std_info_tag.bit_depth == 24 {
@@ -502,20 +504,20 @@ pub struct ImgJpgTag {
 }
 
 impl ImgJpgTag {
-	fn parse<F: Read + Seek>(file: &mut F, length: u32) -> Result<Self, HgxTagError> {
-		let data_pos = file.stream_position()?;
-		file.seek_relative(length as i64)?;
+	fn parse<R: Read + Seek>(reader: &mut R, length: u32) -> Result<Self, HgxTagError> {
+		let data_pos = reader.stream_position()?;
+		reader.seek_relative(length as i64)?;
 		Ok(Self { length, data_pos })
 	}
 
-	pub fn read<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, HgxTagError> {
-		file.seek(SeekFrom::Start(self.data_pos))?;
+	pub fn read<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<u8>, HgxTagError> {
+		reader.seek(SeekFrom::Start(self.data_pos))?;
 		let mut buf = vec![0u8; self.length as usize];
-		file.read_exact(&mut buf)?;
+		reader.read_exact(&mut buf)?;
 		Ok(buf)
 	}
 
-	pub fn stream_read<F: Read + Seek>(&self, file: &mut F, pos: u64, chunk_size: usize) -> Result<Vec<u8>, HgxTagError> {
+	pub fn stream_read<R: Read + Seek>(&self, reader: &mut R, pos: u64, chunk_size: usize) -> Result<Vec<u8>, HgxTagError> {
 		let start_pos = self.data_pos + pos;
 		let remaining_bytes = (self.length as u64).saturating_sub(pos);
 		let read_size = chunk_size.min(remaining_bytes as usize);
@@ -524,9 +526,9 @@ impl ImgJpgTag {
 			return Ok(Vec::new());
 		}
 
-		file.seek(SeekFrom::Start(start_pos))?;
+		reader.seek(SeekFrom::Start(start_pos))?;
 		let mut buf = vec![0u8; read_size];
-		file.read_exact(&mut buf)?;
+		reader.read_exact(&mut buf)?;
 		Ok(buf)
 	}
 }
@@ -538,27 +540,27 @@ pub struct ImgAlTag {
 }
 
 impl ImgAlTag {
-	fn parse<F: Read + Seek>(file: &mut F) -> Result<Self, HgxTagError> {
-		let pos = file.stream_position()?;
-		let compressed_length = file.read_le::<u32>()?;
-		let decompressed_length = file.read_le::<u32>()?;
-		file.seek(SeekFrom::Start(pos + compressed_length as u64))?;
+	fn parse<R: Read + Seek>(reader: &mut R) -> Result<Self, HgxTagError> {
+		let pos = reader.stream_position()?;
+		let compressed_length = reader.read_le::<u32>()?;
+		let decompressed_length = reader.read_le::<u32>()?;
+		reader.seek(SeekFrom::Start(pos + compressed_length as u64))?;
 
 		Ok(Self { compressed_length, decompressed_length, data_pos: pos + 4*2 })
 	}
 
-	pub fn read_extract<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, HgxTagError> {
-		let compressed_data = self.read(file)?;
+	pub fn read_extract<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<u8>, HgxTagError> {
+		let compressed_data = self.read(reader)?;
 		let mut decoder = flate2::read::ZlibDecoder::new(&compressed_data[..]);
 		let mut data = Vec::new();
 		decoder.read_to_end(&mut data)?;
 		Ok(data)
 	}
 
-	pub fn read<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, HgxTagError> {
-		file.seek(SeekFrom::Start(self.data_pos))?;
+	pub fn read<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<u8>, HgxTagError> {
+		reader.seek(SeekFrom::Start(self.data_pos))?;
 		let mut buf = vec![0u8; self.compressed_length as usize];
-		file.read_exact(&mut buf)?;
+		reader.read_exact(&mut buf)?;
 		Ok(buf)
 	}
 }
@@ -569,20 +571,20 @@ pub struct ImgWbpTag {
 }
 
 impl ImgWbpTag {
-	fn parse<F: Read + Seek>(file: &mut F, length: u32) -> Result<Self, HgxTagError> {
-		let data_pos = file.stream_position()?;
-		file.seek_relative(length as i64)?;
+	fn parse<R: Read + Seek>(reader: &mut R, length: u32) -> Result<Self, HgxTagError> {
+		let data_pos = reader.stream_position()?;
+		reader.seek_relative(length as i64)?;
 		Ok(Self { length, data_pos })
 	}
 
-	pub fn read<F: Read + Seek>(&self, file: &mut F) -> Result<Vec<u8>, HgxTagError> {
-		file.seek(SeekFrom::Start(self.data_pos))?;
+	pub fn read<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<u8>, HgxTagError> {
+		reader.seek(SeekFrom::Start(self.data_pos))?;
 		let mut buf = vec![0u8; self.length as usize];
-		file.read_exact(&mut buf)?;
+		reader.read_exact(&mut buf)?;
 		Ok(buf)
 	}
 
-	pub fn stream_read<F: Read + Seek>(&self, file: &mut F, pos: u64, chunk_size: usize) -> Result<Vec<u8>, HgxTagError> {
+	pub fn stream_read<R: Read + Seek>(&self, reader: &mut R, pos: u64, chunk_size: usize) -> Result<Vec<u8>, HgxTagError> {
 		let start_pos = self.data_pos + pos;
 		let remaining_bytes = (self.length as u64).saturating_sub(pos);
 		let read_size = chunk_size.min(remaining_bytes as usize);
@@ -591,9 +593,9 @@ impl ImgWbpTag {
 			return Ok(Vec::new());
 		}
 
-		file.seek(SeekFrom::Start(start_pos))?;
+		reader.seek(SeekFrom::Start(start_pos))?;
 		let mut buf = vec![0u8; read_size];
-		file.read_exact(&mut buf)?;
+		reader.read_exact(&mut buf)?;
 		Ok(buf)
 	}
 }
@@ -607,13 +609,13 @@ pub struct AtsTag {
 }
 
 impl AtsTag {
-	fn parse<F: Read>(file: &mut F) -> Result<Self, HgxTagError> {
+	fn parse<R: Read>(reader: &mut R) -> Result<Self, HgxTagError> {
 		Ok(Self {
-			x: file.read_le::<i32>()?,
-			y: file.read_le::<i32>()?,
-			width: file.read_le::<u32>()?,
-			height: file.read_le::<u32>()?,
-			color: file.read_le::<u32>()?
+			x: reader.read_le::<i32>()?,
+			y: reader.read_le::<i32>()?,
+			width: reader.read_le::<u32>()?,
+			height: reader.read_le::<u32>()?,
+			color: reader.read_le::<u32>()?
 		})
 	}
 }
@@ -623,8 +625,8 @@ pub struct CpTypeTag {
 }
 
 impl CpTypeTag {
-	fn parse<F: Read>(file: &mut F) -> Result<Self, HgxTagError> {
-		Ok(Self { cp_type: file.read_le::<u32>()? })
+	fn parse<R: Read>(reader: &mut R) -> Result<Self, HgxTagError> {
+		Ok(Self { cp_type: reader.read_le::<u32>()? })
 	}
 }
 
@@ -633,7 +635,7 @@ pub struct ImgModeTag {
 }
 
 impl ImgModeTag {
-	fn parse<F: Read>(file: &mut F) -> Result<Self, HgxTagError> {
-		Ok(Self { mode: file.read_le::<u32>()? != 0 })
+	fn parse<R: Read>(reader: &mut R) -> Result<Self, HgxTagError> {
+		Ok(Self { mode: reader.read_le::<u32>()? != 0 })
 	}
 }

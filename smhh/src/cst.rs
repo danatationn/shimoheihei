@@ -8,6 +8,7 @@ use crate::ReadExt;
 /// CatScene
 
 pub struct Cst {
+	pub script_name: String,
 	pub compressed_size: u32,
 	pub decompressed_size: u32,
 	pub raw_script_data: Vec<u8>,
@@ -33,22 +34,24 @@ pub enum CstError {
 }
 
 impl Cst {
-	/// needs to be the compiled .cst and not the .txt
 	pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, CstError> {
-		let mut file = File::open(path)?;
-		Self::from_file(&mut file)
+		let mut file = File::open(&path)?;
+		let file_stem = path.as_ref()
+			.file_stem()
+			.map(|s| s.to_string_lossy().into_owned())
+			.unwrap();
+		Self::from_reader(&mut file, file_stem)
 	}
 
-	/// same as above
-	pub fn from_file<F: Read>(file: &mut F) -> Result<Self, CstError> {
+	pub fn from_reader<R: Read>(reader: &mut R, script_name: String) -> Result<Self, CstError> {
 		let mut magic = [0u8; 8];
-		file.read_exact(&mut magic)?;
+		reader.read_exact(&mut magic)?;
 		if magic != *b"CatScene" {
 			return Err(CstError::WrongSignature(String::from_utf8_lossy(&magic).into_owned()))
 		}
 
-		let compressed_size = file.read_le::<u32>()?;
-		let decompressed_size = file.read_le::<u32>()?;
+		let compressed_size = reader.read_le::<u32>()?;
+		let decompressed_size = reader.read_le::<u32>()?;
 
 		let raw_script_data = Vec::new();
 		let mut script_data = Vec::new();
@@ -56,10 +59,10 @@ impl Cst {
 		if compressed_size == 0 {
 			// not compressed
 			script_data = vec![0u8; decompressed_size as usize];
-			file.read_exact(&mut script_data)?;
+			reader.read_exact(&mut script_data)?;
 		} else {
 			let mut raw_script_data = vec![0u8; compressed_size as usize];
-			file.read_exact(&mut raw_script_data)?;
+			reader.read_exact(&mut raw_script_data)?;
 
 			let mut decoder = ZlibDecoder::new(&raw_script_data[..]);
 			decoder.read_to_end(&mut script_data)?;
@@ -82,7 +85,7 @@ impl Cst {
 		let entry_count = (string_table_offset - offset_table_offset) / 4;
 
 		Ok(Self {
-			compressed_size, decompressed_size, raw_script_data, script_data,
+			script_name, compressed_size, decompressed_size, raw_script_data, script_data,
 			script_len, input_count, offset_table_offset, string_table_offset, entry_count
 		})
 	}
@@ -101,27 +104,43 @@ impl Cst {
 			let mut content: Vec::<u8> = Vec::new();
 			cursor.read_until(0x00, &mut content)?;
 
+			if content.last() == Some(&b'\0') {
+				content.pop();
+			}
 
-			if content.starts_with(b"scene ") {
-				content.splice(0..6, b"#".iter().cloned());
-			} else {
-				content.insert(0, b'\t');
+			match line_type {
+				CstLineType::Input => {
+					if decompiled_script.last() == Some(&b'\n') {
+						decompiled_script.pop();
+					}
+					decompiled_script.extend_from_slice(b"\\@\n");
+					continue;
+				}
+				CstLineType::Page => {
+					if decompiled_script.last() == Some(&b'\n') {
+						decompiled_script.pop();
+					}
+					decompiled_script.extend_from_slice(b"\\n\n");
+					continue;
+				}
+				_ => {}
 			}
 
 			if content.trim_ascii().first().map_or(false, |b| b.is_ascii_alphanumeric() && line_type == CstLineType::Message) {
 				content.insert(0, b'\\');
 			}
-			if content.last() == Some(&b'\0') {
-				content.pop();
-			}
+
+			content.insert(0, b'\t');
 
 			decompiled_script.extend(content);
+
 			if line_type != CstLineType::Name {
 				// i think it's safe to assume the next line will always be a message ?
 				decompiled_script.push(b'\n');
 			}
 		}
 
+		decompiled_script.splice(0..0, format!("#{}\n", self.script_name).into_bytes());
 		Ok(decompiled_script)
 	}
 

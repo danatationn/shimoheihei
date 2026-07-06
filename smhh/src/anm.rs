@@ -25,24 +25,28 @@ pub enum AnmError {
 }
 
 impl Anm {
-	pub fn from<P: AsRef<Path>>(path: &P) -> Result<Self, AnmError> {
+	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self, AnmError> {
 		let mut file = File::open(path)?;
 
+		Self::from_reader(&mut file)
+	}
+
+	pub fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<Self, AnmError> {
 		let mut magic = [0u8; 4];
-		file.read_exact(&mut magic)?;
+		reader.read_exact(&mut magic)?;
 		if &magic != b"ANM\0" {
 			return Err(AnmError::InvalidSignature(magic))
 		}
 
-		file.seek(SeekFrom::Current(4))?;  // skipping unknown u32
+		reader.seek(SeekFrom::Current(4))?;  // skipping unknown u32
 
-		let timeline_count: u32 = file.read_le::<u32>()?;
+		let timeline_count: u32 = reader.read_le::<u32>()?;
 
-		file.seek(SeekFrom::Current(20))?;  // skipping unknown 20 bytes
+		reader.seek(SeekFrom::Current(20))?;  // skipping unknown 20 bytes
 
 		let mut timelines = Vec::with_capacity(timeline_count as usize);
 		for _ in 0..timeline_count {
-			let timeline = AnmTimeline::from(&mut file)?;
+			let timeline = AnmTimeline::from(reader)?;
 			timelines.push(timeline);
 		}
 
@@ -78,16 +82,16 @@ pub enum AnmTimelineError {
 }
 
 impl AnmTimeline {
-	pub fn from<F: Read + Seek>(file: &mut F) -> Result<Self, AnmTimelineError> {
-		let raw_command = file.read_le::<u32>()?;
+	pub fn from<R: Read + Seek>(reader: &mut R) -> Result<Self, AnmTimelineError> {
+		let raw_command = reader.read_le::<u32>()?;
 
 		let command_type = AnmCommandType::try_from(raw_command)?;
 
-		let p1 = AnmParameter::from(file)?;
-		let p2 = AnmParameter::from(file)?;
-		let p3 = AnmParameter::from(file)?;
+		let p1 = AnmParameter::from(reader)?;
+		let p2 = AnmParameter::from(reader)?;
+		let p3 = AnmParameter::from(reader)?;
 
-		file.seek(SeekFrom::Current(5 * 8))?;
+		reader.seek(SeekFrom::Current(5 * 8))?;
 
 		Ok(Self { command_type, parameters: [p1, p2, p3] })
 	}
@@ -158,9 +162,9 @@ pub enum AnmParameterError {
 }
 
 impl AnmParameter {
-	pub fn from<F: Read>(file: &mut F) -> Result<Self, AnmParameterError> {
-		let raw_type = file.read_le::<u32>()?;
-		let value = file.read_le::<u32>()?;
+	pub fn from<R: Read>(reader: &mut R) -> Result<Self, AnmParameterError> {
+		let raw_type = reader.read_le::<u32>()?;
+		let value = reader.read_le::<u32>()?;
 
 		let parameter_type = AnmParameterType::try_from(raw_type)?;
 

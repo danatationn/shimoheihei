@@ -36,7 +36,7 @@ pub fn display_info(args: &InfoArgs) -> () {
 	   	println!("{cs2_pe}");
     	return
     }
-    else if let Ok(hgx) = Hgx::from(&path) {
+    else if let Ok(hgx) = Hgx::from_path(&path) {
 	   	println!("{hgx}");
 		for frame in hgx.frames {
 			println!("\n{frame}");
@@ -46,7 +46,7 @@ pub fn display_info(args: &InfoArgs) -> () {
 		}
 		return
     }
-    else if let Ok(anm) = Anm::from(&path) {
+    else if let Ok(anm) = Anm::from_path(&path) {
 	   	println!("{}", anm);
 		return
     }

@@ -1,6 +1,6 @@
-use std::{ffi::OsStr, fs::{self, File}, io::Write, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
+use std::{ffi::OsStr, fs::{self, File}, io::{Cursor, Write}, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
 
-use crate::ExtractArgs;
+use crate::{ExtractArgs, utils::convert_hgx};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use smhh::{cst::Cst, fes::Fes, kif::Kif, pe::{Cs2Pe, find_cs2_pe}};
 use cli::utils::determine_path;
@@ -54,11 +54,31 @@ pub fn extract(args: &ExtractArgs) -> Result<()> {
 				return Ok::<(), anyhow::Error>(());
 			}
 
-			let entry_file_path = dest_dir.join(entry.get_file_name());
-			let data = kif.extract_entry(entry.index as usize)?;
-			File::create(entry_file_path)?.write_all(&data)?;
+			let file_name = entry.get_file_name();
+			let mut entry_file_path = dest_dir.join(&file_name);
+
+			let entry_data = kif.extract_entry(entry.index as usize)?;
+
+			let data = if file_name.ends_with(".hg3") && !args.dont_convert_images {
+				// image conversion
+				let ext = args.convert_images_to.as_deref().unwrap_or("bmp");
+				entry_file_path.set_extension(ext);
+
+				let image_format = image::ImageFormat::from_extension(ext)
+			        .to_owned()
+					.unwrap_or_else(|| panic!("Error: `.{ext}` is not a supported image format!\n
+							Check https://docs.rs/image/latest/image/codecs/index.html#supported-formats for supported formats"));
+
+				let mut cursor = Cursor::new(&entry_data);
+				convert_hgx(&mut cursor, image_format)?
+			} else {
+				entry_data
+			};
+
+			File::create(&entry_file_path)?.write_all(&data)?;
+			let file_name = entry_file_path.file_name().unwrap();
 			let current_progress = progress.fetch_add(1, Ordering::Relaxed);
-			println!("{} extracted ({}/{})", entry.get_file_name(), current_progress, kif.entries.len());
+			println!("{:?} extracted ({}/{})", file_name, current_progress, kif.entries.len());
 
 			Ok(())
 		})?;
@@ -74,7 +94,7 @@ pub fn extract(args: &ExtractArgs) -> Result<()> {
 		return Ok(())
 	}
 	else if let Ok(cst) = Cst::from_path(&args.path) {
-		let cst_file_path = determine_path(args.path.clone(), args.dest_path.clone(), Some(OsStr::new("cst.txt")));
+		let cst_file_path = determine_path(args.path.clone(), args.dest_path.clone(), Some(OsStr::new("txt")));
 		File::create(&cst_file_path)?.write_all(&cst.decomp_script()?)?;
 		println!("Extracted to `{cst_file_path:?}`");
 		return Ok(())
