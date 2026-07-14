@@ -7,19 +7,13 @@ still very much wip
 <br>
 [trello board](https://trello.com/b/yUxcQDFd/shimoheihei) for feature tracking
 
-## building
-```
-git clone https://github.com/danatationn/shimoheihei
-cd shimoheihei
-cargo idk
-```
-
 ## roadmap
 - [x] kif archives
-- [ ] hgx images
-- [ ] anm files
+- [x] hg3 images
+- [ ] hg2 images
+- [x] anm files
 - [ ] cst scripts
-- [ ] fes scripts
+- [x] fes scripts
 - [ ] zt archives
 - [ ] eventually a gui too
 

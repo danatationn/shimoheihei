@@ -66,6 +66,8 @@ impl Hgx {
 			}
 		}
 
+		reader.seek(SeekFrom::Start(0))?;
+
 		Ok(Hgx { version, frames })
 	}
 }
@@ -133,7 +135,9 @@ impl HgxFrame {
 					_ => return Err(HgxFrameError::UnexpectedTagAtStart())
 				}
 			}
-		};
+		}
+
+		reader.seek(SeekFrom::Start(0))?;
 
 		Ok(HgxFrame { next_pos, id, tags })
 	}

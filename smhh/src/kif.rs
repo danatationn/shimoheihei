@@ -6,7 +6,6 @@ use std::{fmt, fs::File, io::{Read, Seek, SeekFrom}, path::Path, sync::Arc};
 use thiserror::Error;
 
 pub struct Kif {
-	pub file: Arc<File>,
 	pub entry_count: u32,
 	pub entries: Vec<KifEntry>,
 	pub blowfish_key: Option<[u8; 4]>,
@@ -30,16 +29,20 @@ impl Kif {
 	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self, KifError> {
 		let mut file = File::open(path)?;
 
+		Self::from_file(&mut file)
+	}
+
+	pub fn from_file(file: &mut File) -> Result<Self, KifError> {
 		let mut signature = [0u8; 4];
 		file.read_exact(&mut signature)?;
-		if signature != [b'K', b'I', b'F', 0x0] {
+		if signature != *b"KIF\0" {
 			return Err(KifError::InvalidSignature(signature))
 		}
 
 		let entry_count = file.read_le::<u32>()?;
 		let mut entries: Vec<KifEntry> = Vec::with_capacity(entry_count as usize);
 
-		let entry = KifEntry::from(&mut file, 0)?;
+		let entry = KifEntry::from(file, 0)?;
 		let mut blowfish_key: Option<[u8; 4]> = None;
 		let mut blowfish: Option<Arc<BlowfishLE>> = None;
 		if entry.file_name_raw.starts_with(b"__key__.dat") {
@@ -52,22 +55,15 @@ impl Kif {
 
 		for i in 1..entry_count {
 			let entry = if let Some(blowfish) = &blowfish {
-				KifEntry::from_with_blowfish(&mut file, i, blowfish.clone())?
+				KifEntry::from_with_blowfish(file, i, blowfish.clone())?
 			} else {
-				KifEntry::from(&mut file, i)?
+				KifEntry::from(file, i)?
 			};
 			entries.push(entry);
 		}
 
-		let file_arc = Arc::new(file);
-		Ok(Kif { file: file_arc, entry_count, entries, blowfish_key, blowfish, toc_seed: None })
-	}
+		Ok(Kif { entry_count, entries, blowfish_key, blowfish, toc_seed: None })
 
-	pub fn from_path_with_seed<P: AsRef<Path>>(path: &P, toc_seed: u32) -> Result<Self, KifError> {
-		let mut kif = Self::from_path(path)?;
-		kif.deobfuscate_entries(toc_seed)?;
-
-		Ok(kif)
 	}
 
 	pub fn deobfuscate_entries(&mut self, toc_seed: u32) -> Result<(), KifError> {
@@ -80,11 +76,6 @@ impl Kif {
 			}
 		}
 		Ok(())
-	}
-
-	pub fn extract_entry(&self, index: usize) -> Result<Vec<u8>, KifEntryError> {
-		let entry = &self.entries[index];
-		entry.extract(&self.file)
 	}
 }
 
@@ -137,7 +128,7 @@ pub enum KifEntryError {
 }
 
 impl KifEntry {
-	pub fn from<F: Seek + Read>(file: &mut F, index: u32) -> Result<KifEntry, KifEntryError> {
+	pub fn from(file: &mut File, index: u32) -> Result<KifEntry, KifEntryError> {
 		file.seek(SeekFrom::Start(8 + (8 + 64) * index as u64))?;
 		let mut file_name_raw = [0u8; 64];
 		file.read_exact(&mut file_name_raw)?;
@@ -147,7 +138,7 @@ impl KifEntry {
 		Ok(KifEntry { index, file_name_raw, file_name: None, offset, length, blowfish: None, decrypted: false })
 	}
 
-	pub fn from_with_blowfish<F: Seek + Read>(file: &mut F, pos: u32, blowfish: Arc<BlowfishLE>) -> Result<KifEntry, KifEntryError> {
+	pub fn from_with_blowfish(file: &mut File, pos: u32, blowfish: Arc<BlowfishLE>) -> Result<KifEntry, KifEntryError> {
 		let mut entry = Self::from(file, pos)?;
 		entry.blowfish = Some(Arc::clone(&blowfish));
 		entry.deobfuscate_info(Arc::clone(&blowfish))?;

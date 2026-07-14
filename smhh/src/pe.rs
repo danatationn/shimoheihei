@@ -1,5 +1,7 @@
 use std::ffi::OsStr;
+use std::fs::File;
 use std::path::{Path, PathBuf};
+use memmap2::Mmap;
 use pelite::{FileMap, PeFile};
 use pelite::resources::Name;
 use std::{fmt, fs};
@@ -7,6 +9,7 @@ use blowfish::BlowfishLE;
 use blowfish::cipher::{BlockDecrypt, KeyInit};
 use blowfish::cipher::generic_array::GenericArray;
 use thiserror::Error;
+use encoding_rs::SHIFT_JIS;
 
 pub struct Cs2Pe {
 	pub key_code: Vec<u8>,
@@ -30,21 +33,28 @@ pub enum Cs2PeError {
 	InvalidCs2Pe()
 }
 
+// todo: store the raw values as well; key_code can be made into a one liner
 impl Cs2Pe {
 	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self, Cs2PeError> {
 		let map = FileMap::open(&path)
 			.expect("Couldn't read the executable!");
-		let file = PeFile::from_bytes(&map)?;
-		Self::from_file(file)
+		let pe_file = PeFile::from_bytes(&map)?;
+		Self::from_pe_file(pe_file)
 	}
 
-	pub fn from_file(file: PeFile) -> Result<Self, Cs2PeError> {
-		let valid = check_cs2_pe(&file)?;
+	pub fn from_file(file: &File) -> Result<Self, Cs2PeError> {
+		let map = unsafe { Mmap::map(file)? };
+ 		let pe_file = PeFile::from_bytes(&map)?;
+		Self::from_pe_file(pe_file)
+	}
+
+	pub fn from_pe_file(pe_file: PeFile) -> Result<Self, Cs2PeError> {
+		let valid = check_cs2_pe(&pe_file)?;
 		if !valid {
 			return Err(Cs2PeError::InvalidCs2Pe())
 		}
 
-		let resources = file.resources()
+		let resources = pe_file.resources()
 			.expect("This executable has no resources???");
 		let info = resources.version_info()
 			.expect("This executable has no info!");
@@ -65,9 +75,24 @@ impl Cs2Pe {
 			key_code[i] ^= 0xCD;
 		}
 
-		let v_code = v_code_res.to_vec();  // not important in the slightest
-
 		let blowfish = BlowfishLE::new_from_slice(&key_code).unwrap();
+
+		// we're done using the key_code so we can convert it from shift now
+		// if it's NOT shift/if it's malformed it will just fallback to the og utf8
+		key_code = SHIFT_JIS.decode(&key_code).0.as_bytes().to_vec();
+
+		let mut v_code = v_code_res.to_vec();  // not important in the slightest
+		for i in (0..v_code.len()).step_by(8) {
+			let chunk = &mut v_code[i..i+8];
+			let mut block = GenericArray::clone_from_slice(chunk);
+			blowfish.decrypt_block(&mut block);
+			chunk.copy_from_slice(&block);
+		}
+
+		if let Some(pos) = v_code.iter().position(|&byte| byte == 0) {
+			v_code.truncate(pos);
+		}
+
 		let mut v_code2 = v_code2_res.to_vec();
 		for i in (0..v_code2.len()).step_by(8) {
 			let chunk = &mut v_code2[i..i+8];

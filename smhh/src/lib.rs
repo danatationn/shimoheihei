@@ -2,16 +2,18 @@ use std::io::Read;
 
 pub mod anm;
 pub mod cst;
+// pub mod cstl;
 pub mod crypt;
 pub mod fes;
 pub mod hgx;
 pub mod kif;
 pub mod pe;
+pub mod zt;
 
 pub trait ReadExt: Read {
 	fn read_le<T: LeReadable>(&mut self) -> Result<T, std::io::Error>;
 
-	fn read_u8(&mut self) -> std::io::Result<u8> {
+	fn read_byte(&mut self) -> std::io::Result<u8> {
 		let mut buf = [0u8; 1];
 		self.read_exact(&mut buf)?;
 		Ok(buf[0])

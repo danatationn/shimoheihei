@@ -98,7 +98,7 @@ impl Cst {
 
 		for _ in 0..self.entry_count {
 			cursor.seek(SeekFrom::Current(1))?; // reserved byte
-			let raw_line_type = cursor.read_u8()?;
+			let raw_line_type = cursor.read_byte()?;
 			let line_type = CstLineType::try_from(raw_line_type)?;
 
 			let mut content: Vec::<u8> = Vec::new();

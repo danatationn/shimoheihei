@@ -54,7 +54,7 @@ impl Anm {
 	}
 }
 
-impl fmt::Display for Anm {
+impl fmt::Debug for Anm {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		writeln!(f, "Animation file with {} timelines", self.timeline_count)?;
 		for i in 0..self.timeline_count {
