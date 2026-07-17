@@ -68,7 +68,7 @@ jobs:
 
     - name: Install Rust targets
       run: |
-          if [ "#{{ matrix.target }}" = "universal" ]; then
+          if [ "${{ matrix.target }}" = "universal" ]; then
             rustup target add x86_64-apple-darwin aarch64-apple-darwin
           else
             rustup target add ${{ matrix.target }}
@@ -86,7 +86,7 @@ jobs:
               target/x86_64-apple-darwin/release/shimoheihei \
               target/aarch64-apple-darwin/release/shimoheihei
           else
-            cargo build --verbose --release ${{ matrix.target }}
+            cargo build --verbose --release --target ${{ matrix.target }}
           fi
       shell: bash
 
