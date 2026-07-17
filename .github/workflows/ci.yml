@@ -10,34 +10,89 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  linux-job:
-    name: Linux
-    runs-on: ubuntu-latest
+  build:
+    name: Build (${{ matrix.artifact_name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: shimoheihei-linux-x86_64
+            binary_path: target/x86_64-unknown-linux-gnu/release/shimoheihei
+
+          - os: ubuntu-latest
+            target: i686-unknown-linux-gnu
+            artifact_name: shimoheihei-linux-i686
+            binary_path: target/i686-unknown-linux-gnu/release/shimoheihei
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: shimoheihei-linux-aarch64
+            binary_path: target/aarch64-unknown-linux-gnu/release/shimoheihei
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: shimoheihei-windows-x64.exe
+            binary_path: target/x86_64-pc-windows-msvc/release/shimoheihei.exe
+
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            artifact_name: shimoheihei-windows-x86.exe
+            binary_path: target/i686-pc-windows-msvc/release/shimoheihei.exe
+
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact_name: shimoheihei-windows-arm64.exe
+            binary_path: target/aarch64-pc-windows-msvc/release/shimoheihei.exe
+
+          - os: macos-latest
+            target: universal
+            artifact_name: shimoheihei-macos-universal
+            binary_path: target/release/shimoheihei
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Install 32-bit Linux compiler headers
+      if: matrix.target == 'i686-unknown-linux-gnu'
+      run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+    - name: Rust cache
+      uses: swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.target }}
+
+    - name: Install Rust targets
+      run: |
+          if [ "#{{ matrix.target }}" = "universal" ]; then
+            rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          else
+            rustup target add ${{ matrix.target }}
+          fi
+      shell: bash
+
     - name: Build
-      run: cargo build --verbose --release
+      run: |
+          if [ "${{ matrix.target }}" = "universal" ]; then
+            cargo build --verbose --release --target x86_64-apple-darwin
+            cargo build --verbose --release --target aarch64-apple-darwin
+            mkdir -p target\release
+            lipo -create \
+              -output target/release/shimoheihei \
+              target/x86_64-apple-darwin/release/shimoheihei \
+              target/aarch64-apple-darwin/release/shimoheihei
+          else
+            cargo build --verbose --release ${{ matrix.target }}
+          fi
+      shell: bash
 
     - name: Upload artifact
       uses: actions/upload-artifact@v7
       with:
-        name: shimoheihei-linux-cli
-        path: target/release/shimoheihei
-        archive: false
-
-  windows-job:
-    name: Windows
-    runs-on: windows-latest
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose --release
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: shimoheihei-windows-cli
-        path: target/release/shimoheihei.exe
+        name: ${{ matrix.artifact_name }}
+        path: ${{ matrix.binary_path }}
         archive: false

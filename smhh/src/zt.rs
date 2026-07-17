@@ -16,16 +16,14 @@ pub struct Zt {
 pub enum ZtError {
 	#[error("Io error: {0}")]
 	IoError(#[from] std::io::Error),
-	#[error("The file uses the wrong extension! `{0}` (supposed to be .zt)")]
-	InvalidExtension(String),
+	// #[error("The file uses the wrong extension! `{0}` (supposed to be .zt)")]
+	// InvalidExtension(String),
 	#[error("Invalid attribute: {0} (supposed to be 0/1)")]
 	InvalidAttribute(u32),
 }
 
 impl Zt {
 	pub fn from_path(path: &Path) -> Result<Self, ZtError> {
-		// let ext = path.extension().unwrap_or_else(|| return Err(ZtError::WrongExtension()));
-		// if ext != OsStr::from_bytes(b"zt") { return Err(ZtError::WrongExtension((ext.to_str())))}
 		let mut file = File::open(path)?;
 		Self::from_reader(&mut file)
 	}

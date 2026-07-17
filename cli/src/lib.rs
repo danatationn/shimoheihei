@@ -13,8 +13,8 @@ pub mod unpack;
 
 #[derive(Parser)]
 #[command(
-	name = env!("CARGO_CRATE_NAME"),
-	bin_name = env!("CARGO_CRATE_NAME"),
+	name = "shimoheihei",
+	bin_name = "shimoheihei",
 )]
 pub struct Cli {
     #[command(subcommand)]

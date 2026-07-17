@@ -8,14 +8,25 @@ still very much wip
 [trello board](https://trello.com/b/yUxcQDFd/shimoheihei) for feature tracking
 
 ## roadmap
+- [x] cli
+- [ ] eventually a gui
+### unpack
 - [x] kif archives
 - [x] hg3 images
 - [ ] hg2 images
 - [x] anm files
-- [ ] cst scripts
+- [x] cst scripts
 - [x] fes scripts
+- [x] zt archives
+### pack
+- [ ] kif archives
+- [ ] hg3 images
+- [ ] hg2 images
+- [ ] anm files
+- [ ] cst scripts
+- [ ] fes scripts
 - [ ] zt archives
-- [ ] eventually a gui too
+
 
 ## license
 [gpl-3](LICENSE.txt)

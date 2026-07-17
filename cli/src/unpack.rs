@@ -9,7 +9,6 @@ use smhh::{cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::{Cs2Pe, find_cs
 pub struct Unpack {
 	args: UnpackArgs,
 	mpb: MultiProgress,
-	total_pb: Option<ProgressBar>,
 }
 
 impl Unpack {
@@ -17,7 +16,6 @@ impl Unpack {
 		Self {
 			args: args,
 			mpb: MultiProgress::new(),
-			total_pb: None,
 		}
 	}
 
@@ -122,15 +120,36 @@ impl Unpack {
 					_ => panic!("The Hgx file is invalid!")
 				};
 
+
 				for tag in &frame.tags {
+					// DO NOT BLAME ME just fix tis up tomorrow
 					if let HgxTag::Img(img) = &tag {
 						img_found = true;
 						let tag_dest_path = &dest_path.with_extension(format!("{}.{}", &frame.id, &image_ext));
-						let data = img.convert(reader, std_info, image_format).unwrap();
-						File::create(tag_dest_path)?.write_all(&data)?;
+						let data = img.convert(reader, std_info, image_format)?;
+						fs::write(tag_dest_path, data)?;
+					}
+					if let HgxTag::ImgAl(img) = &tag {
+						let tag_dest_path = &dest_path.with_extension(format!("{}.al.{}", &frame.id, &image_ext));
+						let data = img.read_extract(reader)?;
+						fs::write(tag_dest_path, data)?;
+					}
+					if let HgxTag::ImgJpg(img) = &tag {
+						// in an ideal world, `--raw` would extract the jpg and running unpack without it would convert to whatever format
+						// but it's too late in the night for me to be thinking about this
+						let tag_dest_path = &dest_path.with_extension(format!("{}.jpg", &frame.id));
+						let data = img.read(reader)?;
+						fs::write(tag_dest_path, data)?;
+					}
+					if let HgxTag::ImgWbp(img) = &tag {
+						let tag_dest_path = &dest_path.with_extension(format!("{}.webp", &frame.id));
+						let data = img.read(reader)?;
+						fs::write(tag_dest_path, data)?;
 					}
 				}
 				if img_found == false {
+					// is this even needed . we're not looking for one kind of image waaaaaiti need to put this check for all of those types
+					// fuckkkkkkk
 					eprintln!("Couldn't find the image for frame {}", frame.id);
 				}
 			}
@@ -172,6 +191,8 @@ impl Unpack {
 }
 
 fn unpack_zt_node<R: Read + Seek>(reader: &mut R, node: &ZtNode, dest_path: &PathBuf) -> Result<()> {
+	fs::create_dir_all(&dest_path)?;
+
 	match node {
 		ZtNode::Directory { name, children } => {
 			let dir_path = dest_path.join(name);
