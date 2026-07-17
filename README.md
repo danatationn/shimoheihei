@@ -14,7 +14,7 @@ still very much wip
 - [x] kif archives
 - [x] hg3 images
 - [ ] hg2 images
-- [x] anm files
+- [ ] anm files
 - [x] cst scripts
 - [x] fes scripts
 - [x] zt archives

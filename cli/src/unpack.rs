@@ -1,4 +1,4 @@
-use std::{fs::{self, File, create_dir_all}, io::{Cursor, Read, Seek, SeekFrom, Write, copy}, path::PathBuf, time::Duration};
+use std::{fs::{self, File}, io::{self, Cursor, Read, Seek, SeekFrom, Write}, path::PathBuf, time::Duration};
 
 use crate::{BAR_STYLE, SPINNER_STYLE, UnpackArgs, determine_path};
 use anyhow::Result;
@@ -95,79 +95,79 @@ impl Unpack {
 
 	pub fn unpack_stream<R: Read + Seek>(&self, reader: &mut R, dest_path: &mut PathBuf) -> Result<()> {
 		if let Some(parent) = &dest_path.parent() {
-			create_dir_all(parent)?;
+			fs::create_dir_all(parent)?;
 		}
 
 		if self.args.raw {
 			reader.seek(SeekFrom::Start(0))?;
 
 			let mut file = File::create(&dest_path)?;
-			copy(reader, &mut file)?;
+			io::copy(reader, &mut file)?;
 			return Ok(())
 		}
-
-		let mut data: Vec<u8> = Vec::new();
 
 		if let Ok(hgx) = Hgx::from_reader(reader) {
 			let image_ext = &self.args.clone().convert_hgx_to;
 			let image_format = image::ImageFormat::from_extension(&image_ext).unwrap_or_else(||
-				panic!("invalid image format"));
+				panic!("Invalid image format! Check what formats the image crate can work with"));
 
 			for frame in &hgx.frames {
-				let mut img_found = false;
 				let std_info = match &frame.tags[0] {
 					HgxTag::StdInfo(std_info) => std_info,
-					_ => panic!("The Hgx file is invalid!")
+					_ => panic!("The Hgx file is invalid! (no StdInfo)")
 				};
 
-
 				for tag in &frame.tags {
-					// DO NOT BLAME ME just fix tis up tomorrow
-					if let HgxTag::Img(img) = &tag {
-						img_found = true;
-						let tag_dest_path = &dest_path.with_extension(format!("{}.{}", &frame.id, &image_ext));
-						let data = img.convert(reader, std_info, image_format)?;
-						fs::write(tag_dest_path, data)?;
+					let frame_dest_path = &dest_path.with_extension(&frame.id.to_string());
+
+					match &tag {
+						HgxTag::Img(hg) => {
+							let tag_dest_path = &frame_dest_path.with_added_extension(&image_ext);
+							let data = hg.convert(reader, std_info, image_format)?;
+							fs::write(tag_dest_path, data)?;
+						},
+						HgxTag::ImgAl(al) => {
+							let tag_dest_path = &frame_dest_path.with_added_extension("al");
+							let data = al.read_extract(reader)?;
+							fs::write(tag_dest_path, data)?;
+						},
+						HgxTag::ImgJpg(jpg) => {
+							let tag_dest_path = &frame_dest_path.with_added_extension("jpg");
+							let data = jpg.read(reader)?;
+							fs::write(tag_dest_path, data)?;
+						},
+						HgxTag::ImgWbp(wbp) => {
+							let tag_dest_path = &frame_dest_path.with_added_extension("webp");
+							let data = wbp.read(reader)?;
+							fs::write(tag_dest_path, data)?;
+						},
+						_ => continue,
 					}
-					if let HgxTag::ImgAl(img) = &tag {
-						let tag_dest_path = &dest_path.with_extension(format!("{}.al.{}", &frame.id, &image_ext));
-						let data = img.read_extract(reader)?;
-						fs::write(tag_dest_path, data)?;
-					}
-					if let HgxTag::ImgJpg(img) = &tag {
-						// in an ideal world, `--raw` would extract the jpg and running unpack without it would convert to whatever format
-						// but it's too late in the night for me to be thinking about this
-						let tag_dest_path = &dest_path.with_extension(format!("{}.jpg", &frame.id));
-						let data = img.read(reader)?;
-						fs::write(tag_dest_path, data)?;
-					}
-					if let HgxTag::ImgWbp(img) = &tag {
-						let tag_dest_path = &dest_path.with_extension(format!("{}.webp", &frame.id));
-						let data = img.read(reader)?;
-						fs::write(tag_dest_path, data)?;
-					}
-				}
-				if img_found == false {
-					// is this even needed . we're not looking for one kind of image waaaaaiti need to put this check for all of those types
-					// fuckkkkkkk
-					eprintln!("Couldn't find the image for frame {}", frame.id);
 				}
 			}
 			return Ok(())
 		}
+
 		reader.seek(SeekFrom::Start(0))?;
+
 		if let Ok(fes) = Fes::from_reader(reader) {
-			data = fes.script_text;
 			dest_path.set_extension("txt");
+			fs::write(dest_path, fes.script_text)?;
+			return Ok(())
 		}
+
 		reader.seek(SeekFrom::Start(0))?;
+
 		if let Some(stem) = dest_path.file_stem() {
 			if let Ok(cst) = Cst::from_reader(reader, stem.to_string_lossy().into_owned()) {
-				data = cst.decomp_script()?;
 				dest_path.set_extension("txt");
+				fs::write(dest_path, cst.decomp_script()?)?;
+				return Ok(())
 			}
 		}
+
 		reader.seek(SeekFrom::Start(0))?;
+
 		if let Ok(zt) = Zt::from_reader(reader) {
 			dest_path.set_extension("");
 			for node in &zt.root_nodes {
@@ -176,15 +176,12 @@ impl Unpack {
 
 			return Ok(())
 		}
-		reader.seek(SeekFrom::Start(0))?;
-		if data.is_empty() {
-			// fallback
-			let mut file = File::create(dest_path)?;
-			copy(reader, &mut file)?;
-			return Ok(())
-		}
 
-		File::create(dest_path)?.write_all(&data)?;
+		reader.seek(SeekFrom::Start(0))?;
+
+		// fallback
+		let mut file = File::create(dest_path)?;
+		io::copy(reader, &mut file)?;
 
 		Ok(())
 	}

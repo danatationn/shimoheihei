@@ -13,6 +13,11 @@ jobs:
   build:
     name: Build (${{ matrix.artifact_name }})
     runs-on: ${{ matrix.os }}
+
+    # so we can compile linux arm
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
     strategy:
       fail-fast: false
       matrix:
@@ -55,11 +60,15 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install 32-bit Linux compiler headers
-      if: matrix.target == 'i686-unknown-linux-gnu'
+    - name: Install Linux cross compiler headers
+      if: runner.os == 'Linux'
       run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-multilib
+          if [ "${{ matrix.target }}" = "i686-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-multilib
+          elif [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+          fi
 
     - name: Rust cache
       uses: swatinem/rust-cache@v2
@@ -80,7 +89,7 @@ jobs:
           if [ "${{ matrix.target }}" = "universal" ]; then
             cargo build --verbose --release --target x86_64-apple-darwin
             cargo build --verbose --release --target aarch64-apple-darwin
-            mkdir -p target\release
+            mkdir -p target/release
             lipo -create \
               -output target/release/shimoheihei \
               target/x86_64-apple-darwin/release/shimoheihei \
@@ -88,11 +97,13 @@ jobs:
           else
             cargo build --verbose --release --target ${{ matrix.target }}
           fi
+
+          cp ${{ matrix.binary_path }} target/${{ matrix.artifact_name }}
       shell: bash
 
     - name: Upload artifact
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ matrix.artifact_name }}
-        path: ${{ matrix.binary_path }}
+        # upload-artifact with archive set to false will IGNORE the name parameter . why ??????????
+        path: target/${{ matrix.artifact_name }}
         archive: false
