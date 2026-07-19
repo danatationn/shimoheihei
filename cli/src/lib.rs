@@ -48,9 +48,9 @@ pub struct UnpackArgs {
     #[arg(short, long, default_value = "png")]
     convert_hgx_to: String,
     #[arg(short, long)]
-    raw: bool,
-    #[arg(short, long)]
-    skip_existing_files: bool,
+    no_convert: bool,
+    #[arg(short = 'o', long)]
+    no_overwrite: bool,
 }
 
 ///
@@ -64,9 +64,9 @@ pub static SPINNER_STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
 });
 
 pub static BAR_STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
-	ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len}")
+	ProgressStyle::with_template(" {msg} | {elapsed} [{wide_bar}] ETA: {eta} | {pos}/{len} ")
 		.expect("Invalid template")
-		.progress_chars("#=-")
+		.progress_chars("#--")
 });
 
 ///

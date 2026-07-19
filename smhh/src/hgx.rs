@@ -493,7 +493,7 @@ impl ImgTag {
 			}
 		}
 
-		// bgra to rgba
+		// BGRa to RGBa
 		for i in (0..buf.len()).step_by(depth_bytes as usize) {
 			buf.swap(i, i + 2);
 		}
@@ -514,26 +514,23 @@ impl ImgJpgTag {
 		Ok(Self { length, data_pos })
 	}
 
-	pub fn read<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<u8>, HgxTagError> {
+	pub fn read<R: Read + Seek>(&self, reader: &mut R, image_format: image::ImageFormat) -> Result<Vec<u8>, HgxTagError> {
+		// Even though it's a JPEG, it's also in BGR so we can't reencode in RGB and have it be lossless :shrug:
+		// This is where you just need to accept your fate
 		reader.seek(SeekFrom::Start(self.data_pos))?;
 		let mut buf = vec![0u8; self.length as usize];
 		reader.read_exact(&mut buf)?;
-		Ok(buf)
-	}
 
-	pub fn stream_read<R: Read + Seek>(&self, reader: &mut R, pos: u64, chunk_size: usize) -> Result<Vec<u8>, HgxTagError> {
-		let start_pos = self.data_pos + pos;
-		let remaining_bytes = (self.length as u64).saturating_sub(pos);
-		let read_size = chunk_size.min(remaining_bytes as usize);
-
-		if read_size == 0 {
-			return Ok(Vec::new());
+		let mut jpg = image::load_from_memory_with_format(&buf, image::ImageFormat::Jpeg)?.into_rgb8();
+		for pixel in jpg.pixels_mut() {
+			// Swap red channel with blue
+			pixel.0.swap(0, 2);
 		}
 
-		reader.seek(SeekFrom::Start(start_pos))?;
-		let mut buf = vec![0u8; read_size];
-		reader.read_exact(&mut buf)?;
-		Ok(buf)
+		let mut img = Cursor::new(Vec::new());
+		jpg.write_to(&mut img, image_format)?;
+
+		Ok(img.into_inner())
 	}
 }
 
@@ -548,7 +545,7 @@ impl ImgAlTag {
 		let pos = reader.stream_position()?;
 		let compressed_length = reader.read_le::<u32>()?;
 		let decompressed_length = reader.read_le::<u32>()?;
-		reader.seek(SeekFrom::Start(pos + compressed_length as u64))?;
+		reader.seek(SeekFrom::Start(pos + 4*2 + compressed_length as u64))?;
 
 		Ok(Self { compressed_length, decompressed_length, data_pos: pos + 4*2 })
 	}

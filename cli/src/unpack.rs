@@ -1,8 +1,9 @@
-use std::{fs::{self, File}, io::{self, Cursor, Read, Seek, SeekFrom, Write}, path::PathBuf, time::Duration};
+use std::{fs::{self, File}, io::{self, Cursor, Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}, time::Duration};
+use anyhow::anyhow;
 
 use crate::{BAR_STYLE, SPINNER_STYLE, UnpackArgs, determine_path};
 use anyhow::Result;
-use indicatif::{MultiProgress, ProgressBar,};
+use indicatif::{MultiProgress, ProgressBar};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use smhh::{cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::{Cs2Pe, find_cs2_pe}, zt::{Zt, ZtNode}};
 
@@ -42,7 +43,7 @@ impl Unpack {
 					}
 				}
 				else {
-					eprintln!("WARN: no toc seed detected!");
+					eprintln!("WARN: No TOC Seed detected! File names will be garbled..");
 				}
 
 				let total_pb = &self.mpb.add(ProgressBar::new(kif.entry_count as u64))
@@ -98,7 +99,7 @@ impl Unpack {
 			fs::create_dir_all(parent)?;
 		}
 
-		if self.args.raw {
+		if self.args.no_convert {
 			reader.seek(SeekFrom::Start(0))?;
 
 			let mut file = File::create(&dest_path)?;
@@ -108,23 +109,30 @@ impl Unpack {
 
 		if let Ok(hgx) = Hgx::from_reader(reader) {
 			let image_ext = &self.args.clone().convert_hgx_to;
-			let image_format = image::ImageFormat::from_extension(&image_ext).unwrap_or_else(||
-				panic!("Invalid image format! Check what formats the image crate can work with"));
+			let image_format = image::ImageFormat::from_extension(&image_ext).ok_or_else(||
+				anyhow!("Invalid image format! Check what formats the image crate can work with")
+			)?;
 
 			for frame in &hgx.frames {
 				let std_info = match &frame.tags[0] {
 					HgxTag::StdInfo(std_info) => std_info,
-					_ => panic!("The Hgx file is invalid! (no StdInfo)")
+					_ => return Err(anyhow!("The Hgx file is invalid! (no StdInfo)"))
 				};
 
 				for tag in &frame.tags {
-					let frame_dest_path = &dest_path.with_extension(&frame.id.to_string());
+					let frame_dest_path = if &hgx.frames.len() > &1 {
+						&dest_path.with_extension(&frame.id.to_string())
+					} else {
+						&dest_path.with_extension("")
+					};
 
 					match &tag {
 						HgxTag::Img(hg) => {
-							let tag_dest_path = &frame_dest_path.with_added_extension(&image_ext);
-							let data = hg.convert(reader, std_info, image_format)?;
-							fs::write(tag_dest_path, data)?;
+							write_file(
+								&frame_dest_path.with_added_extension(&image_ext),
+								self.args.no_overwrite,
+								|| -> Result<Vec<u8>> { Ok(hg.convert(reader, std_info, image_format)?) }
+							)?;
 						},
 						HgxTag::ImgAl(al) => {
 							let tag_dest_path = &frame_dest_path.with_added_extension("al");
@@ -132,8 +140,8 @@ impl Unpack {
 							fs::write(tag_dest_path, data)?;
 						},
 						HgxTag::ImgJpg(jpg) => {
-							let tag_dest_path = &frame_dest_path.with_added_extension("jpg");
-							let data = jpg.read(reader)?;
+							let tag_dest_path = &frame_dest_path.with_added_extension(&image_ext);
+							let data = jpg.read(reader, image_format)?;
 							fs::write(tag_dest_path, data)?;
 						},
 						HgxTag::ImgWbp(wbp) => {
@@ -171,7 +179,7 @@ impl Unpack {
 		if let Ok(zt) = Zt::from_reader(reader) {
 			dest_path.set_extension("");
 			for node in &zt.root_nodes {
-				unpack_zt_node(reader, node, dest_path)?;
+				Self::unpack_zt_node(&self, reader, node, dest_path)?;
 			}
 
 			return Ok(())
@@ -185,26 +193,46 @@ impl Unpack {
 
 		Ok(())
 	}
-}
 
-fn unpack_zt_node<R: Read + Seek>(reader: &mut R, node: &ZtNode, dest_path: &PathBuf) -> Result<()> {
-	fs::create_dir_all(&dest_path)?;
+	fn unpack_zt_node<R: Read + Seek>(&self, reader: &mut R, node: &ZtNode, dest_path: &PathBuf) -> Result<()> {
+		fs::create_dir_all(&dest_path)?;
 
-	match node {
-		ZtNode::Directory { name, children } => {
-			let dir_path = dest_path.join(name);
-			fs::create_dir_all(&dir_path)?;
+		match node {
+			ZtNode::Directory { name, children } => {
+				let dir_path = dest_path.join(name);
+				fs::create_dir_all(&dir_path)?;
 
-			for child in children {
-				unpack_zt_node(reader, child, &dir_path)?;
-			}
-		},
-		ZtNode::File { name, entry } => {
-			let file_path = dest_path.join(name);
-			let data = entry.extract(reader)?;
-			fs::write(file_path, data)?;
-		},
+				for child in children {
+					Self::unpack_zt_node(&self, reader, child, &dir_path)?;
+				}
+			},
+			ZtNode::File { name, entry } => {
+				let file_path = dest_path.join(name);
+				write_file(file_path, self.args.no_overwrite, || -> Result<Vec<u8>> {
+					Ok(entry.extract(reader)?)
+				})?;
+			},
+		}
+
+		Ok(())
 	}
 
-	Ok(())
+}
+
+fn write_file<P, C, F>(path: P, no_overwrite: bool, data_fn: F) -> Result<bool>
+where
+	P: AsRef<Path>,
+	C: AsRef<[u8]>,
+	F: FnOnce() -> Result<C>,
+{
+	match fs::metadata(&path) {
+		Ok(meta) if meta.len() > 0 && no_overwrite => return Ok(false),
+		// Err(e) if e.kind() != ErrorKind::NotFound => return Ok(false),
+		Ok(_) | Err(_) => {},
+	}
+
+	let data = data_fn()?;
+	fs::write(path, data)?;
+
+	Ok(true)
 }
