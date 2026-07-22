@@ -1,10 +1,8 @@
 use std::{path::PathBuf, sync::LazyLock};
 use clap::{Args, Parser, Subcommand};
 use indicatif::ProgressStyle;
-use smhh::{anm::Anm, fes::Fes, hgx::Hgx, kif::Kif, pe::Cs2Pe};
 
 pub mod info;
-pub mod pack;
 pub mod unpack;
 
 ///
@@ -45,9 +43,9 @@ pub struct UnpackArgs {
     pe_path: Option<PathBuf>,
     #[arg(long)]
     toc_seed: Option<u32>,
-    #[arg(short, long, default_value = "png")]
+    #[arg(short, long, default_value = "jpg")]
     convert_hgx_to: String,
-    #[arg(short, long)]
+    #[arg(short = 'r', long)]
     no_convert: bool,
     #[arg(short = 'o', long)]
     no_overwrite: bool,
@@ -73,22 +71,7 @@ pub static BAR_STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
 /// helper functions
 ///
 
-pub enum Cs2FileType {
-	Pe(Cs2Pe),
-	Kif(Kif),
-	Hgx(Hgx),
-	// Cst(Cst),
-	// Cstl(Cstl),
-	Anm(Anm),
-	Fes(Fes),
-	// Zt(Zt),
-}
-
 pub enum ArgsType {
 	Info(InfoArgs),
 	Unpack(UnpackArgs),
-}
-
-pub fn determine_path(src_path: &PathBuf, dest_path: &Option<PathBuf>) -> PathBuf {
-	dest_path.as_ref().cloned().unwrap_or_else(|| src_path.to_owned())
 }

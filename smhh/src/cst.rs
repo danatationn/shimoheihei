@@ -38,12 +38,12 @@ impl Cst {
 		let mut file = File::open(&path)?;
 		let file_stem = path.as_ref()
 			.file_stem()
-			.map(|s| s.to_string_lossy().into_owned())
+			.map(|s| s.to_str().unwrap())
 			.unwrap();
 		Self::from_reader(&mut file, file_stem)
 	}
 
-	pub fn from_reader<R: Read>(reader: &mut R, script_name: String) -> Result<Self, CstError> {
+	pub fn from_reader<R: Read>(reader: &mut R, script_name: &str) -> Result<Self, CstError> {
 		let mut magic = [0u8; 8];
 		reader.read_exact(&mut magic)?;
 		if magic != *b"CatScene" {
@@ -85,7 +85,7 @@ impl Cst {
 		let entry_count = (string_table_offset - offset_table_offset) / 4;
 
 		Ok(Self {
-			script_name, compressed_size, decompressed_size, raw_script_data, script_data,
+			script_name: script_name.to_owned(), compressed_size, decompressed_size, raw_script_data, script_data,
 			script_len, input_count, offset_table_offset, string_table_offset, entry_count
 		})
 	}

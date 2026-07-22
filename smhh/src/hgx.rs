@@ -349,6 +349,7 @@ impl ImgTag {
 		let raw_data = self.read_raw(reader, std_info_tag).unwrap();
 		let mut data = Cursor::new(Vec::new());
 
+		// the only time the image is the right side up, is when it's the boot menu image (???)
 		if std_info_tag.bit_depth == 24 {
 			let img_buffer = image::ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(std_info_tag.width, std_info_tag.height, raw_data).unwrap();
 			let img = image::DynamicImage::ImageRgb8(img_buffer).flipv();
@@ -578,6 +579,7 @@ impl ImgWbpTag {
 		Ok(Self { length, data_pos })
 	}
 
+	// idk if webp is ALSO in bgr . so for now i am leaving it like this
 	pub fn read<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<u8>, HgxTagError> {
 		reader.seek(SeekFrom::Start(self.data_pos))?;
 		let mut buf = vec![0u8; self.length as usize];

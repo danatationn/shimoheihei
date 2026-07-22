@@ -52,7 +52,7 @@ impl Zt {
 		let mut current = offset;
 
 		loop {
-			let entry = entries.get(&current).expect("bro");
+			let entry = entries.get(&current).expect("bro");  // COME UP WITH A BETTER MESSAGE
 
 			let node = if entry.attributes == 1 {
 				let children_offset = entry.stream_pos + entry.offset_children as u64;
@@ -118,7 +118,7 @@ impl ZtEntry {
 		if &self.decompressed_size == &0 {
 			return Ok(Vec::new())
 		}
-		// reader.seek(std::io::SeekFrom::Start(self.offset_next as u64))?;
+
 		let mut decoder = ZlibDecoder::new(reader);
 		let mut file_data = vec![0u8; self.decompressed_size as usize];
 		decoder.read_exact(&mut file_data)?;

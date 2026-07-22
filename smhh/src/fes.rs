@@ -10,7 +10,6 @@ pub struct Fes {
 	pub compressed_size: u32,
 	pub decompressed_size: u32,
 	pub raw_script_text: Vec<u8>,
-	pub script_text: Vec<u8>,
 }
 
 #[derive(Error, Debug)]
@@ -44,15 +43,20 @@ impl Fes {
 		let mut raw_script_text = vec![0u8; compressed_size as usize];
 		reader.read_exact(&mut raw_script_text)?;
 
-		let mut decoder = ZlibDecoder::new(&raw_script_text[..]);
+
+		Ok(Self { compressed_size, decompressed_size, raw_script_text})
+	}
+
+	pub fn extract(&self) -> Result<Vec<u8>, FesError> {
+		let mut decoder = ZlibDecoder::new(&self.raw_script_text[..]);
 		let mut script_text = Vec::new();
 		decoder.read_to_end(&mut script_text)?;
 
-		if script_text.len() != decompressed_size as usize {
+		if script_text.len() != self.decompressed_size as usize {
 			return Err(FesError::InvalidSize)
 		}
 
-		Ok(Self { compressed_size, decompressed_size, raw_script_text, script_text})
+		Ok(script_text)
 	}
 }
 
