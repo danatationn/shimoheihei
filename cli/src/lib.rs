@@ -89,12 +89,19 @@ pub enum ArgsType {
 	Unpack(UnpackArgs),
 }
 
-pub fn get_toc_seed(args: ArgsType) -> Option<u32> {
-	let (toc_seed, pe_path, path) = match args {
+pub fn get_toc_seed(args: ArgsType, path2: Option<PathBuf>) -> Option<u32> {
+	let (toc_seed, pe_path, mut path) = match args {
 		ArgsType::Info(args) => (args.toc_seed, args.pe_path, Some(args.file_path)),
 		ArgsType::List(args) => (args.toc_seed, args.pe_path, Some(args.file_path)),
 		ArgsType::Unpack(args) => (args.toc_seed, args.pe_path, None),
 	};
+
+	if path2.is_some() {
+		// Canonicalized path
+		// this is really duct taped so i think i'll just make the path an arg and skip reading
+		// it from args altogether
+		path = path2;
+	}
 
 	if let Some(toc_seed) = toc_seed {
 		return Some(toc_seed)

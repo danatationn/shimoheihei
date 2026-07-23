@@ -7,14 +7,15 @@ use smhh::{kif::Kif, zt::{Zt, ZtNode}};
 use crate::{ArgsType, ListArgs, get_toc_seed};
 
 pub fn from(args: &ListArgs) -> Result<()> {
-	let path = args.file_path.canonicalize().expect("The path doesn't exist!");
+	let path = dunce::canonicalize(&args.file_path)
+		.expect("The path provided does not exist!");
 
 	let pager = Pager::new();
 	let mut pager_clone = pager.clone();
 	pager.set_prompt(path.to_string_lossy().into_owned())?;
 
 	if let Ok(mut kif) = Kif::from_path(&path) {
-		let toc_seed = get_toc_seed(ArgsType::List(args.clone()));
+		let toc_seed = get_toc_seed(ArgsType::List(args.clone()), Some(path));
 
 		thread::spawn(move || {
 			for entry in &mut kif.entries {

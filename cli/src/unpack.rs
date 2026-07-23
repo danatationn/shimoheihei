@@ -1,25 +1,12 @@
-use std::{
-    fs::{self, File},
-    io::{self, Cursor, Read, Seek, SeekFrom},
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{fs::{self, File}, io::{self, Cursor, Read, Seek, SeekFrom}, path::{Path, PathBuf}, process, time::Duration};
 
 use anyhow::Result;
 use image::GrayImage;
 use indicatif::{MultiProgress, ProgressBar};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use smhh::{
-    anm::Anm,
-    cst::Cst,
-    fes::Fes,
-    hgx::{Hgx, HgxTag},
-    kif::Kif,
-    pe::{find_cs2_pe, Cs2Pe},
-    zt::{Zt, ZtNode},
-};
+use smhh::{anm::Anm, cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::Cs2Pe, zt::{Zt, ZtNode}};
 
-use crate::{UnpackArgs, BAR_STYLE, SPINNER_STYLE};
+use crate::{BAR_STYLE, SPINNER_STYLE, UnpackArgs, get_toc_seed};
 
 pub struct Unpack {
     args: UnpackArgs,
@@ -41,9 +28,7 @@ impl Unpack {
 
     pub fn unpack(&self) -> Result<()> {
         let total_pb = if &self.args.paths.len() > &1 {
-            &self
-                .mpb
-                .add(ProgressBar::new(self.args.paths.len() as u64))
+            &self.mpb.add(ProgressBar::new(self.args.paths.len() as u64))
                 .with_style(BAR_STYLE.clone())
         } else {
             // Invisible :eyes:
@@ -51,45 +36,31 @@ impl Unpack {
         };
 
         for path in &self.args.paths {
-            let file_name = path
-                .file_name()
+        	let path = dunce::canonicalize(path)
+		         .expect("The path provided does not exist!");
+
+            let file_name = path.file_name()
                 .expect("Path `{path}` isn't valid!")
                 .to_string_lossy()
                 .into_owned();
 
             if &self.args.paths.len() > &1 {
                 // This would make the spinner show
-                total_pb.set_message(file_name);
+                total_pb.set_message(file_name.to_owned());
                 total_pb.enable_steady_tick(Duration::from_secs(1));
             }
 
-            let parent_path = path
-                .parent()
-                .expect("Root can't be unpacked!")
-                .to_path_buf();
-            let dest_path = self
-                .args
-                .dest_path
-                .clone()
-                .unwrap_or(parent_path.to_owned());
-
-            // Look if toc_seed exists anywhere
-            let toc_seed = if let Some(toc_seed) = &self.args.toc_seed {
-                Some(toc_seed.to_owned())
-            } else if let Some(pe_path) = &self.args.pe_path {
-                let cs2_pe = Cs2Pe::from_path(&pe_path)?;
-                println!("TOC seed: {}", cs2_pe.toc_seed);
-                Some(cs2_pe.toc_seed)
-            } else if let Some(pe_path) = find_cs2_pe(parent_path.to_owned()) {
-                println!("Using TOC seed from {pe_path:?}");
-                let cs2_pe = Cs2Pe::from_path(&pe_path)?;
-                println!("TOC seed: {}", cs2_pe.toc_seed);
-                Some(cs2_pe.toc_seed)
+            // this can either be a file or a directory, so do .with_extension("") when needed
+            // todo: stuff dest_path in a folder when there's multiple paths
+            let dest_path = if let Some(dest_path) = &self.args.dest_path {
+            	// ~/export/image, ~/export/pcm
+	           	dest_path.join(&file_name)
             } else {
-                None
+            	// ~/image.int | ~/export/
+            	path.to_owned()
             };
 
-            Self::unpack_path(&self, &path, &dest_path, &total_pb, toc_seed)?;
+            Self::unpack_path(&self, &path, &dest_path, &total_pb)?;
 
             total_pb.inc(1);
         }
@@ -100,13 +71,7 @@ impl Unpack {
         Ok(())
     }
 
-    fn unpack_path(
-        &self,
-        file_path: &PathBuf,
-        dest_path: &PathBuf,
-        total_pb: &ProgressBar,
-        toc_seed: Option<u32>,
-    ) -> Result<()> {
+    fn unpack_path(&self, file_path: &PathBuf, dest_path: &PathBuf, total_pb: &ProgressBar) -> Result<()> {
         // KIFs and PEs MUST be loaded from a file as they use mmap . everything else is fed in unpack_reader()
         let mut file = File::open(file_path)?;
         let file_name = file_path
@@ -116,13 +81,14 @@ impl Unpack {
             .into_owned();
 
         if let Ok(mut kif) = Kif::from_file(&mut file) {
-            let kif_pb = &self
-                .mpb
-                .insert_before(total_pb, ProgressBar::new(kif.entry_count as u64))
+            let kif_pb = &self.mpb.insert_before(total_pb, ProgressBar::new(kif.entry_count as u64))
                 .with_style(BAR_STYLE.clone())
                 .with_message(file_name);
 
+            let toc_seed = get_toc_seed(crate::ArgsType::Unpack(self.args.to_owned()), Some(file_path.to_owned()));
+
             if let Some(toc_seed) = toc_seed && kif.blowfish_key.is_some() {
+	           	println!("TOC seed: {toc_seed}");
                 kif.deobfuscate_entries(toc_seed)?;
             }
 
@@ -132,25 +98,24 @@ impl Unpack {
                     return Ok(());
                 }
 
-                let reader_pb = &self
-                    .mpb
-                    .insert_before(kif_pb, ProgressBar::new_spinner())
+                // `./image.int` -> `./image/`
+		        let dest_path = dest_path.with_extension("");
+
+				fs::create_dir_all(&dest_path)?;
+
+                // `./image/` -> `./image/cg_01.hg3`
+                let entry_path = dest_path.join(entry.get_file_name());
+
+                let reader_pb = &self.mpb.insert_before(kif_pb, ProgressBar::new_spinner())
                     .with_style(SPINNER_STYLE.clone())
                     .with_prefix("extracting")
-                    .with_message(entry.get_file_name());
+                    .with_message(entry_path.to_string_lossy().into_owned());
                 reader_pb.enable_steady_tick(Duration::from_millis(500));
 
                 let data = entry.extract(&file)?;
                 let mut cursor = Cursor::new(&data);
 
-                // `./image.int` -> `./image/`
-                let mut dest_path = file_path.with_extension("");
-                fs::create_dir_all(&dest_path)?;
-
-                // `./image/` -> `./image/cg_01.hg3`
-                let entry_path = dest_path.join(entry.get_file_name());
-
-                Self::unpack_reader(&self, &mut cursor, &entry_path, &mut dest_path, reader_pb)?;
+                Self::unpack_reader(&self, &mut cursor, &entry_path, reader_pb)?;
 
                 kif_pb.inc(1);
 
@@ -159,47 +124,27 @@ impl Unpack {
         } else if let Ok(_cs2_pe) = Cs2Pe::from_path(file_path) {
             todo!()
         } else {
-            let mut file = File::open(file_path)?;
-
-            let spinner = &self
-                .mpb
-                .add(ProgressBar::new_spinner().with_style(SPINNER_STYLE.clone()));
-
-            // todo: Change to expect()
-            let dest_path = file_path.parent().unwrap().to_path_buf();
-            fs::create_dir_all(&dest_path)?;
-
-            if self.args.no_convert && !file_path.ends_with(".zt") {
-                eprintln!("`--no-convert` does not work on single files! Try this on archives instead (.int, .zt)...")
+            if self.args.no_convert && !(file_path.extension().unwrap_or_default() == "zt") {
+                eprintln!("`--no-convert` does not work on single files! Try this on archives instead (.int, .zt)...");
+                process::exit(1);
             }
 
-            Self::unpack_reader(&self, &mut file, file_path, &dest_path, spinner)?;
+            let spinner = &self.mpb.add(ProgressBar::new_spinner().with_style(SPINNER_STYLE.clone()));
+
+            Self::unpack_reader(&self, &mut file, &dest_path, spinner)?;
         }
 
         Ok(())
     }
 
-    fn unpack_reader<R: Read + Seek>(
-        &self,
-        reader: &mut R,
-        file_path: &PathBuf,
-        dest_path: &PathBuf,
-        reader_pb: &ProgressBar,
-    ) -> Result<()> {
-        let file_stem = file_path
-            .file_stem()
-            .expect("Path {file_path} is not valid!")
+    fn unpack_reader<R: Read + Seek>(&self, reader: &mut R, dest_path: &PathBuf, reader_pb: &ProgressBar) -> Result<()> {
+    	let file_stem = dest_path.file_stem()
+            .expect("Path {dest_path} is not valid!")
             .to_string_lossy()
             .into_owned();
 
-        let file_name = file_path
-            .file_name()
-            .expect("Path is not valid!")
-            .to_string_lossy()
-            .into_owned();
-
-        if self.args.no_convert {
-            let mut file = File::create(dest_path.join(file_name))?;
+        if self.args.no_convert && !(dest_path.extension().unwrap_or_default() == "zt") {
+            let mut file = File::create(dest_path)?;
             io::copy(reader, &mut file)?;
             return Ok(());
         }
@@ -207,7 +152,7 @@ impl Unpack {
         if let Ok(anm) = Anm::from_reader(reader) {
             reader_pb.set_prefix("decompiling");
             write_file(
-                dest_path.join(&file_stem).with_extension("txt"),
+                dest_path.with_extension("txt"),
                 self.args.no_overwrite,
                 reader_pb,
                 &self.mpb,
@@ -222,7 +167,7 @@ impl Unpack {
         if let Ok(cst) = Cst::from_reader(reader, &file_stem) {
             reader_pb.set_prefix("decompiling");
             write_file(
-                dest_path.join(&file_stem).with_extension("txt"),
+                dest_path.with_extension("txt"),
                 self.args.no_overwrite,
                 reader_pb,
                 &self.mpb,
@@ -237,7 +182,7 @@ impl Unpack {
         if let Ok(fes) = Fes::from_reader(reader) {
             reader_pb.set_prefix("decoding");
             write_file(
-                dest_path.join(&file_stem).with_extension("txt"),
+                dest_path.with_extension("txt"),
                 self.args.no_overwrite,
                 reader_pb,
                 &self.mpb,
@@ -256,12 +201,12 @@ impl Unpack {
                     _ => continue, // not possible
                 };
 
-                let hg3_path = dest_path.join(&file_stem);
+                let hg3_path = dest_path.with_extension("");
 
                 let frame_path = if &hg3.frames.len() > &1 {
                     hg3_path.with_extension(&frame.id.to_string()) // cg_02_anim.24
                 } else {
-                    hg3_path.with_extension("")
+                    hg3_path
                 };
 
                 for tag in &frame.tags {
@@ -279,17 +224,11 @@ impl Unpack {
                         HgxTag::ImgAl(al) => {
                             reader_pb.set_prefix("converting");
                             let raw_data = al.read_extract(reader)?;
-                            let image = GrayImage::from_raw(
-                                std_info_tag.width,
-                                std_info_tag.height,
-                                raw_data,
-                            )
-                            .expect("Std Info has bad image dimensions!");
+                            let image = GrayImage::from_raw(std_info_tag.width, std_info_tag.height, raw_data)
+	                            .expect("Std Info has bad image dimensions!");
 
                             write_file(
-                                &frame_path.with_added_extension(
-                                    String::from("mask.") + &self.args.convert_hgx_to,
-                                ),
+                                &frame_path.with_added_extension(String::from("mask.") + &self.args.convert_hgx_to),
                                 self.args.no_overwrite,
                                 reader_pb,
                                 &self.mpb,
@@ -304,9 +243,7 @@ impl Unpack {
                         HgxTag::ImgJpg(jpg) => {
                             reader_pb.set_prefix("converting");
                             write_file(
-                                &frame_path.with_added_extension(
-                                    String::from("lossy.") + &self.args.convert_hgx_to,
-                                ),
+                                &frame_path.with_added_extension(String::from("lossy.") + &self.args.convert_hgx_to),
                                 self.args.no_overwrite,
                                 reader_pb,
                                 &self.mpb,
@@ -333,7 +270,7 @@ impl Unpack {
 
         if let Ok(zt) = Zt::from_reader(reader) {
             for node in &zt.root_nodes {
-                Self::unpack_zt_node(&self, reader, node, dest_path, reader_pb)?;
+                Self::unpack_zt_node(&self, reader, node, &dest_path.with_extension(""), reader_pb)?;
             }
 
             return Ok(());
@@ -341,20 +278,23 @@ impl Unpack {
 
         reader.seek(SeekFrom::Start(0))?;
 
-        // Fallback
-        let mut file = File::create(dest_path.join(file_name))?;
-        io::copy(reader, &mut file)?;
+        // Fallback (doesn't println?)
+        write_file(
+			dest_path,
+			self.args.no_overwrite,
+			reader_pb,
+			&self.mpb,
+			|| {
+				let mut buf = Vec::new();
+				io::copy(reader, &mut buf)?;
+				Ok(buf)
+			}
+        )?;
 
         Ok(())
     }
 
-    fn unpack_zt_node<R: Read + Seek>(
-        &self,
-        reader: &mut R,
-        node: &ZtNode,
-        dest_path: &PathBuf,
-        pb: &ProgressBar,
-    ) -> Result<()> {
+    fn unpack_zt_node<R: Read + Seek>(&self, reader: &mut R, node: &ZtNode, dest_path: &PathBuf, pb: &ProgressBar) -> Result<()> {
         match node {
             ZtNode::Directory { name, children } => {
                 let dir_path = dest_path.join(name);
@@ -367,9 +307,7 @@ impl Unpack {
             ZtNode::File { name, entry } => {
                 let file_path = dest_path.join(name);
 
-                let file_pb = &self
-                    .mpb
-                    .insert_before(pb, ProgressBar::new_spinner())
+                let file_pb = &self.mpb.insert_before(pb, ProgressBar::new_spinner())
                     .with_style(SPINNER_STYLE.clone())
                     .with_prefix("extracting");
                 file_pb.enable_steady_tick(Duration::from_millis(500));
@@ -388,13 +326,7 @@ impl Unpack {
     }
 }
 
-fn write_file<P, C, F>(
-    path: P,
-    no_overwrite: bool,
-    pb: &ProgressBar,
-    mpb: &MultiProgress,
-    data_fn: F,
-) -> Result<bool>
+fn write_file<P, C, F>(path: P, no_overwrite: bool, pb: &ProgressBar, mpb: &MultiProgress, data_fn: F) -> Result<bool>
 where
     P: AsRef<Path>,
     C: AsRef<[u8]>,
@@ -416,7 +348,7 @@ where
     pb.finish_and_clear();
     mpb.println(format!(
         "{} {}",
-        if write { "O unpacked" } else { "X skipped" },
+        if write { "* unpacked" } else { "x skipped" },
         path.display()
     ))?;
 

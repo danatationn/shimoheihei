@@ -52,7 +52,9 @@ impl Zt {
 		let mut current = offset;
 
 		loop {
-			let entry = entries.get(&current).expect("bro");  // COME UP WITH A BETTER MESSAGE
+			let Some(entry) = entries.get(&current) else {
+				break;
+			};
 
 			let node = if entry.attributes == 1 {
 				let children_offset = entry.stream_pos + entry.offset_children as u64;

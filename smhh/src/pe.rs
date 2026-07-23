@@ -36,8 +36,7 @@ pub enum Cs2PeError {
 // todo: store the raw values as well; key_code can be made into a one liner
 impl Cs2Pe {
 	pub fn from_path<P: AsRef<Path>>(path: &P) -> Result<Self, Cs2PeError> {
-		let map = FileMap::open(&path)
-			.expect("Couldn't read the executable!");
+		let map = FileMap::open(&path)?;
 		let pe_file = PeFile::from_bytes(&map)?;
 		Self::from_pe_file(pe_file)
 	}
