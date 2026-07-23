@@ -55,7 +55,7 @@ pub struct UnpackArgs {
     pe_path: Option<PathBuf>,
     #[arg(long)]
     toc_seed: Option<u32>,
-    #[arg(short, long, default_value = "jpg")]
+    #[arg(short, long, default_value = "png")]
     convert_hgx_to: String,
     #[arg(short = 'r', long)]
     no_convert: bool,
