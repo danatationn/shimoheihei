@@ -18,7 +18,7 @@ pub fn from(args: &ListArgs) -> Result<()> {
 
 		thread::spawn(move || {
 			for entry in &mut kif.entries {
-				if let Some(toc_seed) = toc_seed {
+				if let Some(toc_seed) = toc_seed && kif.blowfish_key.is_some() {
 					entry.deobfuscate_file_name(toc_seed);
 				}
 
