@@ -1,4 +1,4 @@
-use std::{fmt, fs::File, io::{Read, Seek, SeekFrom}, path::Path};
+use std::{collections::HashMap, fmt, fs::File, io::{Read, Seek, SeekFrom}, path::Path};
 
 use thiserror::Error;
 
@@ -52,6 +52,56 @@ impl Anm {
 
 		Ok(Self{ magic, timeline_count, timelines })
 	}
+
+	pub fn decompile(&self) -> Result<Vec<u8>, AnmError> {
+		let mut script = String::new();
+
+		// GetLabelMap
+		let mut label_vec: Vec<u32> = Vec::new();
+
+		for timeline in &self.timelines {
+			if timeline.command_type == AnmCommandType::Jump {
+				let parameter = timeline.parameters.get(timeline.parameters.len() - 1)
+			        .unwrap();  // todo: replace with unwrap_or_else
+
+				if parameter.parameter_type == AnmParameterType::Variable {
+					label_vec.push(parameter.value);
+				}
+			}
+		}
+
+		let mut label_index = 0;
+		let mut label_map: HashMap<u32, String> = HashMap::new();
+		label_vec.sort();
+
+		for i in &label_vec {
+			label_map.insert(*i, label_index.to_string());
+			label_index += 1;
+		}
+
+		// DecompileInternal
+		for (i, timeline) in self.timelines.iter().enumerate() {
+			if let Some(label_name) = label_map.get(&(i as u32)) {
+				script += &format!("#{label_name}");
+			}
+
+			script += &format!("\t{}", timeline.command_type.as_str());
+			if !timeline.command_type.as_str().is_empty() {
+				script.push(' ');
+			}
+
+			for (i, parameter) in timeline.parameters.iter().enumerate() {
+				script += &format!("{}", parameter.value.to_string());
+				if timeline.parameters.len()-1 != i {
+					script.push(' ');
+				} else {
+					script.push('\n');
+				}
+			}
+		}
+
+		Ok(script.into_bytes())
+	}
 }
 
 impl fmt::Debug for Anm {
@@ -68,7 +118,7 @@ impl fmt::Debug for Anm {
 
 pub struct AnmTimeline {
 	pub command_type: AnmCommandType,
-	pub parameters: [AnmParameter; 3],  // technically there's 8 but only 3 get used
+	pub parameters: Vec<AnmParameter>,  // technically there can be 8 params but only 3 get used
 }
 
 #[derive(Error, Debug)]
@@ -93,12 +143,13 @@ impl AnmTimeline {
 
 		reader.seek(SeekFrom::Current(5 * 8))?;
 
-		Ok(Self { command_type, parameters: [p1, p2, p3] })
+		Ok(Self { command_type, parameters: vec![p1, p2, p3] })
 	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AnmCommandType {  // literally only show and jump get used
+pub enum AnmCommandType {
+	// literally only show and jump get used
 	Show	= 0,	// [ID] [min] (max)
 	Set		= 1,	// [var] [min] (max)
 	Loop	= 2,	// [var] [label]
@@ -119,21 +170,46 @@ pub enum AnmCommandType {  // literally only show and jump get used
 	Sub		= 17,	// [var] [value]
 }
 
+impl AnmCommandType {
+	pub fn as_str(&self) -> &'static str {
+		match &self {
+			AnmCommandType::Show => "",
+			AnmCommandType::Set => "set",
+			AnmCommandType::Loop => "loop",
+			AnmCommandType::Jump => "jump",
+			AnmCommandType::If => "if",
+			AnmCommandType::IfE => "ife",
+			AnmCommandType::IfN => "ifn",
+			AnmCommandType::IfG => "ifg",
+			AnmCommandType::IfS => "ifs",
+			AnmCommandType::IfGE => "ifge",
+			AnmCommandType::IfSE => "ifse",
+			AnmCommandType::Max => "max",
+			AnmCommandType::Blend => "blend",
+			AnmCommandType::Disp => "disp",
+			AnmCommandType::Pos => "pos",
+			AnmCommandType::Wait => "wait",
+			AnmCommandType::Add => "add",
+			AnmCommandType::Sub => "sub",
+		}
+	}
+}
+
 impl TryFrom<u32> for AnmCommandType {
     type Error = AnmTimelineError;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::Show),
-            1 => Ok(Self::Set),
-            2 => Ok(Self::Loop),
-            3 => Ok(Self::Jump),
-            4 => Ok(Self::If),
-            5 => Ok(Self::IfE),
-            6 => Ok(Self::IfN),
-            7 => Ok(Self::IfG),
-            8 => Ok(Self::IfS),
-            9 => Ok(Self::IfGE),
+            0  => Ok(Self::Show),
+            1  => Ok(Self::Set),
+            2  => Ok(Self::Loop),
+            3  => Ok(Self::Jump),
+            4  => Ok(Self::If),
+            5  => Ok(Self::IfE),
+            6  => Ok(Self::IfN),
+            7  => Ok(Self::IfG),
+            8  => Ok(Self::IfS),
+            9  => Ok(Self::IfGE),
             10 => Ok(Self::IfSE),
             11 => Ok(Self::Max),
             12 => Ok(Self::Blend),
@@ -146,7 +222,6 @@ impl TryFrom<u32> for AnmCommandType {
         }
     }
 }
-
 
 pub struct AnmParameter {
 	pub parameter_type: AnmParameterType,

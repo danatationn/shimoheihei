@@ -4,7 +4,7 @@ use anyhow::Result;
 use image::GrayImage;
 use indicatif::{MultiProgress, ProgressBar};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use smhh::{cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::{Cs2Pe, find_cs2_pe}, zt::{Zt, ZtNode}};
+use smhh::{anm::Anm, cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::{Cs2Pe, find_cs2_pe}, zt::{Zt, ZtNode}};
 
 use crate::{BAR_STYLE, SPINNER_STYLE, UnpackArgs};
 
@@ -15,7 +15,7 @@ pub struct Unpack {
 }
 
 impl Unpack {
-	pub fn from_args(args: UnpackArgs) -> Self {
+	pub fn from(args: UnpackArgs) -> Self {
 		let image_format = image::ImageFormat::from_extension(&args.convert_hgx_to)
 		    .unwrap_or_else(|| panic!("`{}` is not a valid image format!", &args.convert_hgx_to));
 
@@ -161,6 +161,21 @@ impl Unpack {
 			io::copy(reader, &mut file)?;
 			return Ok(())
 		}
+
+		if let Ok(anm) = Anm::from_reader(reader) {
+			reader_pb.set_prefix("decompiling");
+			write_file(
+				dest_path.join(&file_stem).with_extension("txt"),
+				self.args.no_overwrite,
+				reader_pb,
+				&self.mpb,
+				|| { Ok(anm.decompile()?) }
+			)?;
+
+			return Ok(())
+		}
+
+		reader.seek(SeekFrom::Start(0))?;
 
 		if let Ok(cst) = Cst::from_reader(reader, &file_stem) {
 			reader_pb.set_prefix("decompiling");
