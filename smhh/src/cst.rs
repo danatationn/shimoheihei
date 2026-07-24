@@ -135,7 +135,7 @@ impl Cst {
 			decompiled_script.extend(content);
 
 			if line_type != CstLineType::Name {
-				// i think it's safe to assume the next line will always be a message ?
+				// I think it's safe to assume the next line will always be a message ?
 				decompiled_script.push(b'\n');
 			}
 		}

@@ -14,18 +14,24 @@ still very much wip
 - [x] kif archives
 - [x] hg3 images
 - [ ] hg2 images
-- [ ] anm files
+- [x] anm files
 - [x] cst scripts
+- [ ] cstl scripts
 - [x] fes scripts
 - [x] zt archives
+- [ ] kcs files
+- [ ] kx2 files
 ### pack
 - [ ] kif archives
 - [ ] hg3 images
 - [ ] hg2 images
 - [ ] anm files
 - [ ] cst scripts
+- [ ] cstl scripts
 - [ ] fes scripts
 - [ ] zt archives
+- [ ] kcs files
+- [ ] kx2 files
 
 
 ## license

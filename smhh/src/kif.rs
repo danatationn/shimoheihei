@@ -1,18 +1,11 @@
 use crate::ReadExt;
 use crate::crypt::{MersenneTwister, beaufort_cipher};
-use blowfish::{
-    BlowfishLE,
-    cipher::{BlockDecrypt, KeyInit, consts::U8, generic_array::GenericArray},
-};
+use blowfish::{BlowfishLE, cipher::{BlockDecrypt, KeyInit, consts::U8, generic_array::GenericArray}};
 use memmap2::Mmap;
-use std::{
-    fmt,
-    fs::File,
-    io::{Read, Seek, SeekFrom},
-    path::Path,
-    sync::Arc,
-};
+use std::{fmt, fs::File, io::{Read, Seek, SeekFrom}, path::Path, sync::Arc};
 use thiserror::Error;
+
+/// kclib Intergrated File
 
 pub struct Kif {
     pub entry_count: u32,
@@ -22,14 +15,14 @@ pub struct Kif {
     pub toc_seed: Option<u32>,
 }
 
-/// kclib Intergrated File
-
 #[derive(Error, Debug)]
 pub enum KifError {
     #[error("This KIF is invalid! ({0:?})")]
     InvalidSignature([u8; 4]),
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Blowfish key is invalid!")]
+    InvalidBlowfishKey,
     #[error("Entry error: {0}")]
     Entry(#[from] KifEntryError),
 }
@@ -57,7 +50,8 @@ impl Kif {
         if entry.file_name_raw.starts_with(b"__key__.dat") {
             let mut mt = MersenneTwister::from_seed(entry.length);
             blowfish_key = Some(mt.next_u32().to_le_bytes());
-            let blowfish_inst = BlowfishLE::new_from_slice(&blowfish_key.unwrap()).unwrap();
+            let blowfish_inst = BlowfishLE::new_from_slice(&blowfish_key.unwrap())
+                .map_err(|_| KifError::InvalidBlowfishKey)?;
             blowfish = Some(Arc::new(blowfish_inst));
         }
         entries.push(entry);

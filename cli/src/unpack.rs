@@ -4,7 +4,7 @@ use anyhow::Result;
 use image::GrayImage;
 use indicatif::{MultiProgress, ProgressBar};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use smhh::{anm::Anm, cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::Cs2Pe, zt::{Zt, ZtNode}};
+use smhh::{anm::Anm, cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kcs::Kcs, kif::Kif, pe::Cs2Pe, zt::{Zt, ZtNode}};
 
 use crate::{BAR_STYLE, SPINNER_STYLE, UnpackArgs, get_toc_seed};
 
@@ -50,7 +50,7 @@ impl Unpack {
                 total_pb.enable_steady_tick(Duration::from_secs(1));
             }
 
-            // this can either be a file or a directory, so do .with_extension("") when needed
+            // This can either be a file or a directory, so do .with_extension("") when needed
             // todo: stuff dest_path in a folder when there's multiple paths
             let dest_path = if let Some(dest_path) = &self.args.dest_path {
             	// ~/export/image, ~/export/pcm
@@ -143,58 +143,76 @@ impl Unpack {
             .to_string_lossy()
             .into_owned();
 
+     	let file_ext = dest_path.extension()
+	        .unwrap_or_default()
+			.to_string_lossy()
+			.into_owned();
+
+    	// Remove the duped if statement
         if self.args.no_convert && !(dest_path.extension().unwrap_or_default() == "zt") {
-            let mut file = File::create(dest_path)?;
-            io::copy(reader, &mut file)?;
-            return Ok(());
+            write_file(
+			dest_path,
+			self.args.no_overwrite,
+			reader_pb,
+			&self.mpb,
+			|| {
+				let mut buf = Vec::new();
+				io::copy(reader, &mut buf)?;
+				Ok(buf)
+			}
+            )?;
+
+            return Ok(())
         }
 
-        if let Ok(anm) = Anm::from_reader(reader) {
+        reader.seek(SeekFrom::Start(0))?;
+
+        if file_ext == "anm" && let Ok(anm) = Anm::from_reader(reader) {
             reader_pb.set_prefix("decompiling");
             write_file(
-                dest_path.with_extension("txt"),
+                dest_path.with_added_extension("txt"),
                 self.args.no_overwrite,
                 reader_pb,
                 &self.mpb,
                 || Ok(anm.decompile()?),
             )?;
 
-            return Ok(());
+            return Ok(())
         }
 
         reader.seek(SeekFrom::Start(0))?;
 
-        if let Ok(cst) = Cst::from_reader(reader, &file_stem) {
+        if file_ext == "cst" && let Ok(cst) = Cst::from_reader(reader, &file_stem) {
             reader_pb.set_prefix("decompiling");
             write_file(
-                dest_path.with_extension("txt"),
+                dest_path.with_added_extension("txt"),
                 self.args.no_overwrite,
                 reader_pb,
                 &self.mpb,
                 || Ok(cst.decomp_script()?),
             )?;
 
-            return Ok(());
+            return Ok(())
         }
 
         reader.seek(SeekFrom::Start(0))?;
 
-        if let Ok(fes) = Fes::from_reader(reader) {
+        if file_ext == "fes" && let Ok(fes) = Fes::from_reader(reader) {
             reader_pb.set_prefix("decoding");
             write_file(
-                dest_path.with_extension("txt"),
+                dest_path.with_added_extension("txt"),
                 self.args.no_overwrite,
                 reader_pb,
                 &self.mpb,
                 || Ok(fes.extract()?),
             )?;
 
-            return Ok(());
+            return Ok(())
         }
 
         reader.seek(SeekFrom::Start(0))?;
 
-        if let Ok(hg3) = Hgx::from_reader(reader) {
+        if file_ext == "hg3" && let Ok(hg3) = Hgx::from_reader(reader) {
             for frame in &hg3.frames {
                 let std_info_tag = match &frame.tags.get(0) {
                     Some(HgxTag::StdInfo(std_info_tag)) => std_info_tag,
@@ -263,22 +281,36 @@ impl Unpack {
                     }
                 }
             }
-            return Ok(());
+
+            return Ok(())
         }
+
+        // reader.seek(SeekFrom::Start(0))?;
+
+        // if file_ext == "kcs" && let Ok(kcs) = Kcs::from_reader(reader) {
+        // 	write_file(
+        //  		dest_path.with_added_extension("bin"),
+        //    		self.args.no_overwrite,
+        //      	reader_pb,
+        //       	&self.mpb,
+        //        	|| Ok(kcs.data),
+        // 	)?;
+
+        //  	return Ok(())
+        // }
 
         reader.seek(SeekFrom::Start(0))?;
 
-        if let Ok(zt) = Zt::from_reader(reader) {
+        if file_ext == "zt" && let Ok(zt) = Zt::from_reader(reader) {
             for node in &zt.root_nodes {
                 Self::unpack_zt_node(&self, reader, node, &dest_path.with_extension(""), reader_pb)?;
             }
 
-            return Ok(());
+            return Ok(())
         }
 
         reader.seek(SeekFrom::Start(0))?;
 
-        // Fallback (doesn't println?)
         write_file(
 			dest_path,
 			self.args.no_overwrite,

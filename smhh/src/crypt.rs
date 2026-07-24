@@ -1,3 +1,5 @@
+// this could all be moved in lib.rs . but idk honestly
+
 const N: usize = 624;
 const M: usize = 397;
 const DEFAULT_SEED: u32 = 4357;
@@ -12,9 +14,9 @@ pub struct MersenneTwister {
 	pub mt_index: usize,
 }
 
+/// This is a reimplentation of the 29-10-99 variant of MT19937 which is used in Cs2
+/// https://www.math.sci.hiroshima-u.ac.jp/m-mat/MT/VERSIONS/C-LANG/991029/mt19937int.c
 impl MersenneTwister {
-	//! this tries to replicate the 29-10-99 variant of MT19937, used in cs2
-	//! https://www.math.sci.hiroshima-u.ac.jp/m-mat/MT/VERSIONS/C-LANG/991029/mt19937int.c
 	pub fn new() -> Self {
 		// mti==N+1 means mt[N] is not initialized
 		Self { state_array: [0u32; N], mt_index: N + 1 }
@@ -78,9 +80,8 @@ impl MersenneTwister {
 }
 
 
+/// clone of trigger_segfault's c# code
 pub fn beaufort_cipher(mut text: [u8; 64], mut key: usize) -> [u8; 64] {
-	//! clone of the c# code
-	//! todo try to make it look prettier if possible (preferably like the function above this)
 	const LENGTH: usize = 52;
 	const FWD: &[u8; LENGTH] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 	const REV: &[u8; LENGTH] = b"zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA";

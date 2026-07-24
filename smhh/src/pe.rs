@@ -26,6 +26,8 @@ pub enum Cs2PeError {
 	IoError(#[from] std::io::Error),
 	#[error("Pe error: {0}")]
 	PeError(#[from] pelite::Error),
+	#[error("Blowfish key is invalid!")]
+	InvalidBlowfishKey,
 	#[error("Pe find error: {0}")]
 	FindError(#[from] pelite::resources::FindError),
 
@@ -74,13 +76,14 @@ impl Cs2Pe {
 			key_code[i] ^= 0xCD;
 		}
 
-		let blowfish = BlowfishLE::new_from_slice(&key_code).unwrap();
+		let blowfish = BlowfishLE::new_from_slice(&key_code)
+		    .map_err(|_| Cs2PeError::InvalidBlowfishKey)?;
 
-		// we're done using the key_code so we can convert it from shift now
-		// if it's NOT shift/if it's malformed it will just fallback to the og utf8
+		// We're done using the KEY_CODE so we can convert it from SHIFT now
+		// If it's NOT SHIFT/If it's malformed it will just fallback to the OG UTF8
 		key_code = SHIFT_JIS.decode(&key_code).0.as_bytes().to_vec();
 
-		let mut v_code = v_code_res.to_vec();  // not important in the slightest
+		let mut v_code = v_code_res.to_vec();
 		for i in (0..v_code.len()).step_by(8) {
 			let chunk = &mut v_code[i..i+8];
 			let mut block = GenericArray::clone_from_slice(chunk);

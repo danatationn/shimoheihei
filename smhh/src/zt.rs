@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::{Read, Seek, SeekFrom}, path::Path};
+use std::{collections::HashMap, ffi::OsString, fs::File, io::{Read, Seek, SeekFrom}, path::Path};
 use encoding_rs::SHIFT_JIS;
 use flate2::read::ZlibDecoder;
 use thiserror::Error;
@@ -16,14 +16,19 @@ pub struct Zt {
 pub enum ZtError {
 	#[error("Io error: {0}")]
 	IoError(#[from] std::io::Error),
-	// #[error("The file uses the wrong extension! `{0}` (supposed to be .zt)")]
-	// InvalidExtension(String),
+	#[error("The file uses the wrong extension! `{0:?}` (supposed to be .zt)")]
+	InvalidExtension(OsString),
 	#[error("Invalid attribute: {0} (supposed to be 0/1)")]
 	InvalidAttribute(u32),
 }
 
 impl Zt {
 	pub fn from_path(path: &Path) -> Result<Self, ZtError> {
+		let ext = path.extension().unwrap_or_default();
+		if ext != "zt" {
+			return Err(ZtError::InvalidExtension(ext.to_owned()))
+		}
+
 		let mut file = File::open(path)?;
 		Self::from_reader(&mut file)
 	}

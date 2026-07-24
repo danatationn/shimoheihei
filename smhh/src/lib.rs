@@ -2,11 +2,13 @@ use std::io::Read;
 
 pub mod anm;
 pub mod cst;
-// pub mod cstl;
+pub mod cstl;
 pub mod crypt;
 pub mod fes;
 pub mod hgx;
+pub mod kcs;
 pub mod kif;
+pub mod kx2;
 pub mod pe;
 pub mod zt;
 

@@ -53,6 +53,7 @@ impl Anm {
 		Ok(Self{ magic, timeline_count, timelines })
 	}
 
+	/// this is incredibly scuffed
 	pub fn decompile(&self) -> Result<Vec<u8>, AnmError> {
 		let mut script = String::new();
 
@@ -62,7 +63,7 @@ impl Anm {
 		for timeline in &self.timelines {
 			if timeline.command_type == AnmCommandType::Jump {
 				let parameter = timeline.parameters.get(timeline.parameters.len() - 1)
-			        .unwrap();  // todo: replace with unwrap_or_else
+			        .unwrap();
 
 				if parameter.parameter_type == AnmParameterType::Variable {
 					label_vec.push(parameter.value);
@@ -91,7 +92,13 @@ impl Anm {
 			}
 
 			for (i, parameter) in timeline.parameters.iter().enumerate() {
-				script += &format!("{}", parameter.value.to_string());
+				if parameter.parameter_type == AnmParameterType::Variable && timeline.command_type == AnmCommandType::Jump && timeline.parameters.len()-1 == i {
+					script += &format!("{}", label_map[&parameter.value]);
+				} else {
+					script += &format!("{}", parameter.value.to_string());
+				}
+
+				// if we're not at the end keep putting spaces
 				if timeline.parameters.len()-1 != i {
 					script.push(' ');
 				} else {
@@ -134,16 +141,56 @@ pub enum AnmTimelineError {
 impl AnmTimeline {
 	pub fn from<R: Read + Seek>(reader: &mut R) -> Result<Self, AnmTimelineError> {
 		let raw_command = reader.read_le::<u32>()?;
-
 		let command_type = AnmCommandType::try_from(raw_command)?;
+		let mut parameters: Vec<AnmParameter> = Vec::new();
 
-		let p1 = AnmParameter::from(reader)?;
-		let p2 = AnmParameter::from(reader)?;
-		let p3 = AnmParameter::from(reader)?;
+		let param_count = match command_type {
+			AnmCommandType::Show => 3,
+			AnmCommandType::Set => 3,
+			AnmCommandType::Loop => 2,
+			AnmCommandType::Jump => 1,
+			AnmCommandType::If => 2,
+			AnmCommandType::IfE => 3,
+			AnmCommandType::IfN => 3,
+			AnmCommandType::IfG => 3,
+			AnmCommandType::IfS => 3,
+			AnmCommandType::IfGE => 3,
+			AnmCommandType::IfSE => 3,
+			AnmCommandType::Max => 1,
+			AnmCommandType::Blend => 1,
+			AnmCommandType::Disp => 1,
+			AnmCommandType::Pos => 2,
+			AnmCommandType::Wait => 2,
+			AnmCommandType::Add => 2,
+			AnmCommandType::Sub => 2,
+		};
 
-		reader.seek(SeekFrom::Current(5 * 8))?;
+		for _ in 0..param_count {
+			let param = AnmParameter::from(reader)?;
+			parameters.push(param);
+		}
 
-		Ok(Self { command_type, parameters: vec![p1, p2, p3] })
+		let cmd_has_opt_param = match command_type {
+			AnmCommandType::Show => true,
+			AnmCommandType::Set => true,
+			AnmCommandType::Wait => true,
+			_ => false,
+		};
+
+		if cmd_has_opt_param {
+			let ultimate = parameters.last()
+				.expect("smth");
+			let penultimate = parameters.get(param_count - 2)
+				.expect("smth 2");
+
+			if ultimate.value == penultimate.value {
+				parameters.pop();
+			}
+		}
+
+		reader.seek(SeekFrom::Current((8 - param_count as i64) * 8))?;
+
+		Ok(Self { command_type, parameters })
 	}
 }
 
