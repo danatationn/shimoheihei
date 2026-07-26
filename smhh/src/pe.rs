@@ -127,17 +127,6 @@ impl Cs2Pe {
 	}
 }
 
-impl fmt::Display for Cs2Pe {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(
-			f, "Key: {}\nVCode2: {}\nSeed: {}",
-			String::from_utf8_lossy(&self.key_code),
-			String::from_utf8_lossy(&self.v_code2),
-			&self.toc_seed
-		)
-	}
-}
-
 impl fmt::Debug for Cs2Pe {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		f.debug_struct("Cs2Pe")

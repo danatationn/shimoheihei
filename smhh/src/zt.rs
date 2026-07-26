@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::OsString, fs::File, io::{Read, Seek, SeekFrom}, path::Path};
+use std::{collections::HashMap, ffi::OsString, fmt, fs::File, io::{Read, Seek, SeekFrom}, path::Path};
 use encoding_rs::SHIFT_JIS;
 use flate2::read::ZlibDecoder;
 use thiserror::Error;
@@ -77,6 +77,12 @@ impl Zt {
 		}
 
 		Ok(nodes)
+	}
+}
+
+impl fmt::Debug for Zt {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "Zt {{}}")
 	}
 }
 

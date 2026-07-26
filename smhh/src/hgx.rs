@@ -72,20 +72,17 @@ impl Hgx {
 	}
 }
 
-impl fmt::Display for Hgx {
+impl fmt::Debug for Hgx {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(
-			f, "HGX, ver. {}",
-			&self.version,
-		)?;
+		write!(f, "Hg3 {{ ")?;
 
 		if *&self.frames.len() == 1 {
-			write!(f, " (1 frame)")?;
+			write!(f, "1 frame")?;
 		} else {
-			write!(f, " ({} frames)", &self.frames.len())?;
+			write!(f, "{} frames", &self.frames.len())?;
 		}
 
-		Ok(())
+		write!(f, "}}")
 	}
 }
 

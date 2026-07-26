@@ -1,14 +1,13 @@
 use std::{fmt::Write, thread};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use minus::Pager;
 use smhh::{kif::Kif, zt::{Zt, ZtNode}};
 
 use crate::{ArgsType, ListArgs, get_toc_seed};
 
 pub fn from(args: &ListArgs) -> Result<()> {
-	let path = dunce::canonicalize(&args.file_path)
-		.expect("The path provided does not exist!");
+	let path = dunce::canonicalize(&args.file_path)?;
 
 	let pager = Pager::new();
 	let mut pager_clone = pager.clone();
@@ -24,13 +23,6 @@ pub fn from(args: &ListArgs) -> Result<()> {
 				}
 
 				let _ = writeln!(pager_clone, "{}", entry.get_file_name());
-				// Make these one-liners. One-liners that look good
-				/* if kif.blowfish.is_some() && !entry.file_name_raw.starts_with(b"__key__.dat") {
-					let _ = writeln!(pager_clone, "\tOffset: {} bytes", entry.offset);
-					let _ = writeln!(pager_clone, "\tLength: {} bytes", entry.length);
-				} else {
-					let _ = writeln!(pager_clone, "\tMT seed: {}", entry.length);
-				} */
 			}
 		});
 
@@ -53,8 +45,7 @@ pub fn from(args: &ListArgs) -> Result<()> {
 		return Ok(())
 	}
 
-	println!("This format is not supported! (Supported formats: .int, .zt)");
-	Ok(())
+	bail!("This format is not supported! (Supported formats: .int, .zt)");
 }
 
 fn write_zt_node<W: Write>(writer: &mut W, node: &ZtNode, prefix: &str, is_last: bool) {

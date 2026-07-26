@@ -7,7 +7,6 @@ use crate::ReadExt;
 /// Animation Script
 
 pub struct Anm {
-	pub magic: [u8; 4],
 	pub timeline_count: u32,
 	pub timelines: Vec<AnmTimeline>,
 }
@@ -32,10 +31,10 @@ impl Anm {
 	}
 
 	pub fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<Self, AnmError> {
-		let mut magic = [0u8; 4];
-		reader.read_exact(&mut magic)?;
-		if &magic != b"ANM\0" {
-			return Err(AnmError::InvalidSignature(magic))
+		let mut magic_buf = [0u8; 4];
+		reader.read_exact(&mut magic_buf)?;
+		if &magic_buf != b"ANM\0" {
+			return Err(AnmError::InvalidSignature(magic_buf))
 		}
 
 		reader.seek(SeekFrom::Current(4))?;  // skipping unknown u32
@@ -50,7 +49,7 @@ impl Anm {
 			timelines.push(timeline);
 		}
 
-		Ok(Self{ magic, timeline_count, timelines })
+		Ok(Self{ timeline_count, timelines })
 	}
 
 	/// this is incredibly scuffed
@@ -58,6 +57,7 @@ impl Anm {
 		let mut script = String::new();
 
 		// GetLabelMap
+		// I haven't found any scripts that actually have labels like these
 		let mut label_vec: Vec<u32> = Vec::new();
 
 		for timeline in &self.timelines {
@@ -113,13 +113,7 @@ impl Anm {
 
 impl fmt::Debug for Anm {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		writeln!(f, "Animation file with {} timelines", self.timeline_count)?;
-		for i in 0..self.timeline_count {
-			let timeline = &self.timelines[i as usize];
-
-			writeln!(f, "{i}. {:?}: {:?}", timeline.command_type, timeline.parameters)?;
-		}
-		Ok(())
+		write!(f, "Anm {{ {} timelines }}", self.timeline_count)
 	}
 }
 

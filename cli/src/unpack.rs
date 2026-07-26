@@ -1,12 +1,12 @@
-use std::{fs::{self, File}, io::{self, Cursor, Read, Seek, SeekFrom}, path::{Path, PathBuf}, process, time::Duration};
+use std::{fs::{self, File}, io::{self, Cursor, Read, Seek, SeekFrom}, path::{Path, PathBuf}, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use image::GrayImage;
 use indicatif::{MultiProgress, ProgressBar};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use smhh::{anm::Anm, cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kcs::Kcs, kif::Kif, pe::Cs2Pe, zt::{Zt, ZtNode}};
+use smhh::{anm::Anm, cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::Cs2Pe, zt::{Zt, ZtNode}};
 
-use crate::{BAR_STYLE, SPINNER_STYLE, UnpackArgs, get_toc_seed};
+use crate::{BAR_STYLE, SPINNER_STYLE, TOTAL_BAR_STYLE, UnpackArgs, get_toc_seed};
 
 pub struct Unpack {
     args: UnpackArgs,
@@ -15,32 +15,31 @@ pub struct Unpack {
 }
 
 impl Unpack {
-    pub fn from(args: UnpackArgs) -> Self {
+    pub fn from(args: UnpackArgs) -> Result<Self> {
         let image_format = image::ImageFormat::from_extension(&args.convert_hgx_to)
-            .unwrap_or_else(|| panic!("`{}` is not a valid image format!", &args.convert_hgx_to));
+        .ok_or_else(|| anyhow!("ERROR: `{}` is not a valid image format!", &args.convert_hgx_to))?;
 
-        Self {
+        Ok(Self {
             args,
             mpb: MultiProgress::new(),
             image_format,
-        }
+        })
     }
 
     pub fn unpack(&self) -> Result<()> {
         let total_pb = if &self.args.paths.len() > &1 {
             &self.mpb.add(ProgressBar::new(self.args.paths.len() as u64))
-                .with_style(BAR_STYLE.clone())
+                .with_style(TOTAL_BAR_STYLE.clone())
         } else {
             // Invisible :eyes:
             &self.mpb.add(ProgressBar::new_spinner())
         };
 
         for path in &self.args.paths {
-        	let path = dunce::canonicalize(path)
-		         .expect("The path provided does not exist!");
+        	let path = dunce::canonicalize(path)?;
 
             let file_name = path.file_name()
-                .expect("Path `{path}` isn't valid!")
+                .ok_or_else(|| anyhow!("Path `{path:?}` isn't valid!"))?
                 .to_string_lossy()
                 .into_owned();
 
@@ -51,12 +50,12 @@ impl Unpack {
             }
 
             // This can either be a file or a directory, so do .with_extension("") when needed
-            // todo: stuff dest_path in a folder when there's multiple paths
+            // TODO: Stuff dest_path in a folder when there's multiple paths
             let dest_path = if let Some(dest_path) = &self.args.dest_path {
-            	// ~/export/image, ~/export/pcm
+            	// ~/export/image.int, ~/export/pcm.int
 	           	dest_path.join(&file_name)
             } else {
-            	// ~/image.int | ~/export/
+            	// ~/image.int
             	path.to_owned()
             };
 
@@ -76,7 +75,7 @@ impl Unpack {
         let mut file = File::open(file_path)?;
         let file_name = file_path
             .file_name()
-            .expect("Path `{path}` isn't valid!")
+            .ok_or_else(|| anyhow!("Path {file_path:?} isn't valid!"))?
             .to_string_lossy()
             .into_owned();
 
@@ -125,8 +124,7 @@ impl Unpack {
             todo!()
         } else {
             if self.args.no_convert && !(file_path.extension().unwrap_or_default() == "zt") {
-                eprintln!("`--no-convert` does not work on single files! Try this on archives instead (.int, .zt)...");
-                process::exit(1);
+                bail!("ERROR: `--no-convert` does not work on single files! Try this on archives instead (.int, .zt)...");
             }
 
             let spinner = &self.mpb.add(ProgressBar::new_spinner().with_style(SPINNER_STYLE.clone()));
@@ -139,7 +137,7 @@ impl Unpack {
 
     fn unpack_reader<R: Read + Seek>(&self, reader: &mut R, dest_path: &PathBuf, reader_pb: &ProgressBar) -> Result<()> {
     	let file_stem = dest_path.file_stem()
-            .expect("Path {dest_path} is not valid!")
+            .ok_or_else(|| anyhow!("Path {dest_path:?} is not valid!"))?
             .to_string_lossy()
             .into_owned();
 
@@ -149,17 +147,17 @@ impl Unpack {
 			.into_owned();
 
     	// Remove the duped if statement
-        if self.args.no_convert && !(dest_path.extension().unwrap_or_default() == "zt") {
+        if self.args.no_convert {
             write_file(
-			dest_path,
-			self.args.no_overwrite,
-			reader_pb,
-			&self.mpb,
-			|| {
-				let mut buf = Vec::new();
-				io::copy(reader, &mut buf)?;
-				Ok(buf)
-			}
+				dest_path,
+				self.args.no_overwrite,
+				reader_pb,
+				&self.mpb,
+				|| {
+					let mut buf = Vec::new();
+					io::copy(reader, &mut buf)?;
+					Ok(buf)
+				}
             )?;
 
             return Ok(())
@@ -243,7 +241,7 @@ impl Unpack {
                             reader_pb.set_prefix("converting");
                             let raw_data = al.read_extract(reader)?;
                             let image = GrayImage::from_raw(std_info_tag.width, std_info_tag.height, raw_data)
-	                            .expect("Std Info has bad image dimensions!");
+	                            .ok_or_else(|| anyhow!("Std Info has bad image dimensions!"))?;
 
                             write_file(
                                 &frame_path.with_added_extension(String::from("mask.") + &self.args.convert_hgx_to),
@@ -284,20 +282,6 @@ impl Unpack {
 
             return Ok(())
         }
-
-        // reader.seek(SeekFrom::Start(0))?;
-
-        // if file_ext == "kcs" && let Ok(kcs) = Kcs::from_reader(reader) {
-        // 	write_file(
-        //  		dest_path.with_added_extension("bin"),
-        //    		self.args.no_overwrite,
-        //      	reader_pb,
-        //       	&self.mpb,
-        //        	|| Ok(kcs.data),
-        // 	)?;
-
-        //  	return Ok(())
-        // }
 
         reader.seek(SeekFrom::Start(0))?;
 

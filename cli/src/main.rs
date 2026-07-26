@@ -8,7 +8,7 @@ fn main() {
         Commands::Info(args) => info::from(&args).unwrap(),
     	Commands::List(args) => list::from(&args).unwrap(),
         Commands::Unpack(args) => {
-        	let unpacker = Unpack::from(args.clone());
+        	let unpacker = Unpack::from(args.clone()).unwrap();
         	unpacker.unpack().unwrap();
         },
     }

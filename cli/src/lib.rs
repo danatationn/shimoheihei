@@ -79,6 +79,12 @@ pub static BAR_STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
 		.progress_chars("#--")
 });
 
+pub static TOTAL_BAR_STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
+	ProgressStyle::with_template(" {pos}/{len} [{wide_bar}] {elapsed} | ETA: {eta} ")
+    .expect("Invalid template")
+    .progress_chars("#--")
+});
+
 ///
 /// helper functions
 ///
