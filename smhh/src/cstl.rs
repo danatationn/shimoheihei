@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::ReadExt;
 
 /// CatScene Localization
-/// Note: the latest sdk was released before nekopara 3 (first game with cstl)
+/// NOTE: the latest sdk was released before nekopara 3 (first game with cstl)
 /// so decomp is just my guess on how it would look like
 
 #[derive(Debug)]
@@ -56,13 +56,22 @@ impl Cstl {
     	// TODO make this prettier . will require some bs
         let mut string = String::new();
 
+        for lang in &self.languages {
+            string.push_str(lang);
+            if self.languages.last() != Some(lang) {
+                string.push(' ');
+            }
+        }
+        string.push('\n');
         for _ in 0..self.msg_count as i32 {
             for _ in 0..self.lang_count {
                 let name = reader.read_ffstr()?;
                 let content = reader.read_ffstr()?;
 
-                string.push_str(&name);
-                string.push('\t');
+                if !&name.is_empty() {
+                    string.push_str(&name);
+                    string.push('\t');
+                }
                 string.push_str(&content);
                 string.push('\n');
             }
