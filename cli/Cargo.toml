@@ -11,7 +11,6 @@ image = "0.25.9"
 rayon = "1.11.0"
 indicatif = { version = "0.18.4", features = ["rayon"] }
 console = "0.16.2"
-minus = { version = "5.7.2", features = ["dynamic_output"] }
 dunce = "1.0.5"
 
 [[bin]]

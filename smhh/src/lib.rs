@@ -20,6 +20,29 @@ pub trait ReadExt: Read {
 		self.read_exact(&mut buf)?;
 		Ok(buf[0])
 	}
+
+	fn read_ffint(&mut self) -> std::io::Result<u32> {
+	    let mut value: u32 = 0;
+		loop {
+		    let current = self.read_byte()?;
+			value = value.wrapping_add(current as u32);
+			if current != 0xFF {
+    			break;
+			}
+		}
+
+		Ok(value)
+	}
+
+	fn read_ffstr(&mut self) -> std::io::Result<String> {
+	    let len = self.read_ffint()?;
+		let mut string_buf = vec![0u8; len as usize];
+
+	    self.read_exact(&mut string_buf)?;
+
+		String::from_utf8(string_buf)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+	}
 }
 
 pub trait LeReadable {

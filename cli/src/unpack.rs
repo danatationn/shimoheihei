@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow, bail};
 use image::GrayImage;
 use indicatif::{MultiProgress, ProgressBar};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use smhh::{anm::Anm, cst::Cst, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::Cs2Pe, zt::{Zt, ZtNode}};
+use smhh::{anm::Anm, cst::Cst, cstl::Cstl, fes::Fes, hgx::{Hgx, HgxTag}, kif::Kif, pe::Cs2Pe, zt::{Zt, ZtNode}};
 
 use crate::{BAR_STYLE, SPINNER_STYLE, TOTAL_BAR_STYLE, UnpackArgs, get_toc_seed};
 
@@ -36,6 +36,10 @@ impl Unpack {
         };
 
         for path in &self.args.paths {
+            if !path.exists() {
+                bail!("that path not exist TODO make message")
+            }
+
         	let path = dunce::canonicalize(path)?;
 
             let file_name = path.file_name()
@@ -195,14 +199,14 @@ impl Unpack {
 
         reader.seek(SeekFrom::Start(0))?;
 
-        if file_ext == "fes" && let Ok(fes) = Fes::from_reader(reader) {
-            reader_pb.set_prefix("decoding");
+        if file_ext == "cstl" && let Ok(cstl) = Cstl::from_reader(reader) {
+            reader_pb.set_prefix("decompiling");
             write_file(
                 dest_path.with_added_extension("txt"),
                 self.args.no_overwrite,
                 reader_pb,
                 &self.mpb,
-                || Ok(fes.extract()?),
+                || Ok(cstl.decomp_script(reader)?),
             )?;
 
             return Ok(())
@@ -210,72 +214,87 @@ impl Unpack {
 
         reader.seek(SeekFrom::Start(0))?;
 
-        if file_ext == "hg3" && let Ok(hg3) = Hgx::from_reader(reader) {
-            for frame in &hg3.frames {
-                let std_info_tag = match &frame.tags.get(0) {
-                    Some(HgxTag::StdInfo(std_info_tag)) => std_info_tag,
-                    _ => continue, // not possible
-                };
+        if file_ext == "fes" && let Ok(fes) = Fes::from_reader(reader) {
+            reader_pb.set_prefix("decoding");
+            write_file(
+                dest_path.with_added_extension("txt"),
+                self.args.no_overwrite,
+                reader_pb,
+        &self.mpb,
+        || Ok(fes.extract()?),
+    )?;
 
-                let hg3_path = dest_path.with_extension("");
+    return Ok(())
+}
 
-                let frame_path = if &hg3.frames.len() > &1 {
-                    hg3_path.with_extension(&frame.id.to_string()) // cg_02_anim.24
-                } else {
-                    hg3_path
-                };
+reader.seek(SeekFrom::Start(0))?;
 
-                for tag in &frame.tags {
-                    match tag {
-                        HgxTag::Img(hg) => {
-                            reader_pb.set_prefix("converting");
-                            write_file(
-                                &frame_path.with_added_extension(&self.args.convert_hgx_to),
-                                self.args.no_overwrite,
-                                reader_pb,
-                                &self.mpb,
-                                || Ok(hg.convert(reader, std_info_tag, self.image_format)?),
-                            )?;
-                        }
-                        HgxTag::ImgAl(al) => {
-                            reader_pb.set_prefix("converting");
-                            let raw_data = al.read_extract(reader)?;
-                            let image = GrayImage::from_raw(std_info_tag.width, std_info_tag.height, raw_data)
-	                            .ok_or_else(|| anyhow!("Std Info has bad image dimensions!"))?;
+if file_ext == "hg3" && let Ok(hg3) = Hgx::from_reader(reader) {
+    for frame in &hg3.frames {
+        let std_info_tag = match &frame.tags.get(0) {
+            Some(HgxTag::StdInfo(std_info_tag)) => std_info_tag,
+            _ => continue, // not possible
+        };
 
-                            write_file(
-                                &frame_path.with_added_extension(String::from("mask.") + &self.args.convert_hgx_to),
-                                self.args.no_overwrite,
-                                reader_pb,
-                                &self.mpb,
-                                || {
-                                    let mut buf: Vec<u8> = Vec::new();
-                                    let mut cursor = Cursor::new(&mut buf);
-                                    image.write_to(&mut cursor, self.image_format)?;
-                                    Ok(buf)
-                                },
-                            )?;
-                        }
-                        HgxTag::ImgJpg(jpg) => {
-                            reader_pb.set_prefix("converting");
-                            write_file(
-                                &frame_path.with_added_extension(String::from("lossy.") + &self.args.convert_hgx_to),
-                                self.args.no_overwrite,
-                                reader_pb,
-                                &self.mpb,
-                                || Ok(jpg.read(reader, self.image_format)?),
-                            )?;
-                        }
-                        HgxTag::ImgWbp(wbp) => {
-                            write_file(
-                                &frame_path.with_added_extension("webp"),
-                                self.args.no_overwrite,
-                                reader_pb,
-                                &self.mpb,
-                                || Ok(wbp.read(reader)?),
-                            )?;
-                        }
-                        _ => continue,
+        let hg3_path = dest_path.with_extension("");
+
+        let frame_path = if &hg3.frames.len() > &1 {
+            hg3_path.with_extension(&frame.id.to_string()) // cg_02_anim.24
+        } else {
+            hg3_path
+        };
+
+        for tag in &frame.tags {
+            match tag {
+                HgxTag::Img(hg) => {
+                    reader_pb.set_prefix("converting");
+                    write_file(
+                        &frame_path.with_added_extension(&self.args.convert_hgx_to),
+                        self.args.no_overwrite,
+                        reader_pb,
+                        &self.mpb,
+                        || Ok(hg.convert(reader, std_info_tag, self.image_format)?),
+                    )?;
+                }
+                HgxTag::ImgAl(al) => {
+                    reader_pb.set_prefix("converting");
+                    let raw_data = al.read_extract(reader)?;
+                    let image = GrayImage::from_raw(std_info_tag.width, std_info_tag.height, raw_data)
+                        .ok_or_else(|| anyhow!("Std Info has bad image dimensions!"))?;
+
+                    write_file(
+                        &frame_path.with_added_extension(String::from("mask.") + &self.args.convert_hgx_to),
+                        self.args.no_overwrite,
+                        reader_pb,
+                        &self.mpb,
+                        || {
+                            let mut buf: Vec<u8> = Vec::new();
+                            let mut cursor = Cursor::new(&mut buf);
+                            image.write_to(&mut cursor, self.image_format)?;
+                            Ok(buf)
+                        },
+                    )?;
+                }
+                HgxTag::ImgJpg(jpg) => {
+                    reader_pb.set_prefix("converting");
+                    write_file(
+                        &frame_path.with_added_extension(String::from("lossy.") + &self.args.convert_hgx_to),
+                        self.args.no_overwrite,
+                        reader_pb,
+                        &self.mpb,
+                        || Ok(jpg.read(reader, self.image_format)?),
+                    )?;
+                }
+                HgxTag::ImgWbp(wbp) => {
+                    write_file(
+                        &frame_path.with_added_extension("webp"),
+                        self.args.no_overwrite,
+                        reader_pb,
+                        &self.mpb,
+                        || Ok(wbp.read(reader)?),
+                    )?;
+                }
+                _ => continue,
                     }
                 }
             }

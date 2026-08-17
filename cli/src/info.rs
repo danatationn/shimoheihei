@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use smhh::{anm::Anm, cst::Cst, fes::Fes, hgx::Hgx, kif::Kif, pe::Cs2Pe, zt::Zt};
+use smhh::{anm::Anm, cst::Cst, cstl::Cstl, fes::Fes, hgx::Hgx, kif::Kif, pe::Cs2Pe, zt::Zt};
 
 use crate::InfoArgs;
 
@@ -10,10 +10,14 @@ pub fn from(args: &InfoArgs) -> Result<()> {
 		.to_string_lossy()
 		.into_owned();
 
+	Cstl::from_path(&path)?;
+
 	if let Ok(anm) = Anm::from_path(&path) {
 		println!("{anm:?}");
 	} else if let Ok(cst) = Cst::from_path(&path) {
 		println!("{cst:?}");
+	} else if let Ok(cstl) = Cstl::from_path(&path) {
+	    println!("{cstl:?}");
 	} else if let Ok(fes) = Fes::from_path(&path) {
 		println!("{fes:?}");
 	} else if let Ok(hg3) = Hgx::from_path(&path) {

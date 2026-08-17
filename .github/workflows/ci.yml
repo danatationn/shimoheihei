@@ -39,17 +39,17 @@ jobs:
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: shimoheihei-windows-x64.exe
+            artifact_name: shimoheihei-windows-x86_64.exe
             binary_path: target/x86_64-pc-windows-msvc/release/shimoheihei.exe
 
           - os: windows-latest
             target: i686-pc-windows-msvc
-            artifact_name: shimoheihei-windows-x86.exe
+            artifact_name: shimoheihei-windows-i686.exe
             binary_path: target/i686-pc-windows-msvc/release/shimoheihei.exe
 
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            artifact_name: shimoheihei-windows-arm64.exe
+            artifact_name: shimoheihei-windows-aarch64.exe
             binary_path: target/aarch64-pc-windows-msvc/release/shimoheihei.exe
 
           - os: macos-latest
