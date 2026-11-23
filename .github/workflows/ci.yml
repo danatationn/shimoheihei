@@ -1,4 +1,4 @@
-name: Cargo build
+name: Cargo
 
 on:
   push:
@@ -107,3 +107,28 @@ jobs:
         # upload-artifact with archive set to false will IGNORE the name parameter . why ??????????
         path: target/${{ matrix.artifact_name }}
         archive: false
+
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: lint
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: test-${{ matrix.os }}
+      - run: cargo test --workspace --all-targets

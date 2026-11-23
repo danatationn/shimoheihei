@@ -31,11 +31,7 @@ you can also skip files that already exist by using `-o`/`--no-overwrite`
 just check `--help` i shouldn't be telling you all this
 
 ### list
-for now, list does only one thing: gives you a big list of files. it has `less` controls so `q` quits and all the other binds
-
-it also shows depth for .zt files
-
-i plan for this to let you unpack files from within the list view and maybe view info and stuff
+for now, list does only one thing: gives you a big list of entries from the top directory
 
 ### info
 shows very basic info about a given format . not much to comment
